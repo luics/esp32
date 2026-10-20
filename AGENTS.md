@@ -1,48 +1,159 @@
-# ESP-IDF project guidance
+# ESP-IDF Agent Instructions
 
-## ESP32 blink
+This file is a reusable baseline for coding agents working in ESP-IDF application
+and component repositories. Follow more specific instructions in the target
+repository when they override this baseline.
 
-Minimal ESP-IDF GPIO blink example targeting ESP32-C6-DevKitC-1. `sdkconfig.defaults` selects `esp32c6`, 8 MB flash, and GPIO2. Set `CONFIG_BLINK_GPIO` in `idf.py menuconfig` to match the LED wiring. Connect GPIO2 through a 330 Ω resistor to an external LED's anode and connect its cathode to GND. GPIO2 is not a strapping pin on ESP32-C6. The board's GPIO8 LED is an addressable RGB LED, not a plain GPIO LED; this example controls only the external LED. Avoid C6 strapping pins GPIO4/5/8/9/15, USB/JTAG pins GPIO12/13, and flash pins GPIO24–30 for this example. See the [board pinout](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c6/esp32-c6-devkitc-1/user_guide.html#header-block).
+## Discover the Project First
 
-```sh
-eim run "idf.py set-target esp32c6"
-eim run "idf.py build"
-```
+- Locate the ESP-IDF project root before running commands. A project root normally
+  contains a top-level `CMakeLists.txt` with a `project(...)` call.
+- In repositories with multiple applications or test apps, identify the affected
+  project roots and run commands from each relevant root.
+- Read the repository README, CI configuration, top-level `CMakeLists.txt`,
+  `sdkconfig.defaults*`, component manifests, partition tables, and existing build
+  scripts before choosing commands.
+- Determine the required ESP-IDF version, supported targets, board assumptions,
+  and project-specific validation commands. Prefer repository and CI commands over
+  generic commands in this file.
+- If no project is present, do not create a scaffold unless the user requested a
+  new project or the task clearly requires one.
+- When a new project scaffold is required, use
+  `idf.py create-project <PROJECT_NAME>` instead of manually generating the
+  boilerplate files.
 
-To run on hardware, connect a compatible ESP32 development board over a USB data cable, identify its serial port, then use `idf.py -p <PORT> flash monitor` in the active ESP-IDF environment. A successful build alone does not verify the LED.
+## Environment and Documentation
 
-### Wokwi simulation in VS Code
+- Ensure the correct ESP-IDF environment is active before using `idf.py`.
+- Prefer EIM CLI for installing and selecting ESP-IDF versions when the repository
+  does not prescribe another setup. Use these commands as needed:
+  - Verify EIM is available: `eim --version`
+  - List installed ESP-IDF versions, their absolute installation paths, and the
+    selected version: `eim list`
+  - Select an installed version: `eim select <ESP_IDF_VERSION>`
+  - Run with the selected version: `eim run "idf.py <command>"`
+  - Run with a specific version without changing the selection:
+    `eim run "idf.py <command>" <ESP_IDF_VERSION>`
+  - Verify a specific ESP-IDF environment before building:
+    `eim run "idf.py --version" <ESP_IDF_VERSION>`
+  - Install a missing version when authorized:
+    `eim install -i <ESP_IDF_VERSION>`
+  - Open the interactive installer when requested: `eim wizard`
+- Use the installation path reported by `eim list` when a task needs `IDF_PATH`
+  or direct access to a matching ESP-IDF checkout. Do not guess installation
+  paths.
+- If the environment is sourced directly, verify that `idf.py --version` matches
+  the version required by the project.
+- Prefer `idf.py` workflows over invoking CMake or Ninja directly.
+- Use ESP-IDF documentation and migration guides matching the project's version
+  and target. Do not rely on `latest` documentation for version-sensitive APIs.
 
-Install and activate the Wokwi extension, open this project folder, and build with `eim run "idf.py build"`. Run `Wokwi: Start Simulator` from the command palette. No physical board, serial port, or flashing is needed.
+## Standard Commands
 
-`wokwi.toml` loads the images listed in `build/flasher_args.json` and the debug symbols in `build/esp32_blink.elf`. `diagram.json` uses `board-esp32-c6-devkitc-1` with `esp:2` connected through a 330-ohm resistor to a red LED's anode, with its cathode connected to `esp:GND.1`. This C6 model uses numeric GPIO pin names, unlike the classic DevKit V1's `D2`. The expected behavior is 500 ms on and 500 ms off. If you change `CONFIG_BLINK_GPIO`, update the diagram wiring to match; if you change the target chip, replace the simulated board as well. Rebuild after source changes. After editing the diagram, close and reopen the simulator with `Wokwi: Start Simulator` to reload the wiring.
+- Reconfigure: `idf.py reconfigure`
+- Build: `idf.py build`
+- Select target: `idf.py set-target <TARGET>`
+- Flash: `idf.py -p <PORT> flash`
+- Monitor: `idf.py -p <PORT> monitor`
+- Flash and monitor: `idf.py -p <PORT> flash monitor`
 
-## Local development environment
+`idf.py set-target` already clears the build directory, moves the previous
+`sdkconfig` to `sdkconfig.old`, and reconfigures the project. Ask the user before
+running it because it replaces configuration and build state. Do not run a
+redundant `idf.py fullclean` afterward. Use `fullclean` only when stale artifacts
+are a demonstrated problem, and ask before deleting build state.
 
-- This Mac uses Espressif Installation Manager (EIM) to manage ESP-IDF and its toolchains. Prefer `eim run "idf.py ..."` for commands so the selected IDF environment is activated consistently. The ESP-IDF Tools Local MCP Server is registered in the local T3/Codex environment as `esp-idf-tools`; it runs `eim run "idf.py mcp-server"` and uses `IDF_MCP_WORKSPACE_FOLDER` for this project.
-- Current local setup: EIM 0.20.1; ESP-IDF 6.1.0 is installed as `stable-mcp` under `~/.espressif/stable-mcp/esp-idf`, with its managed Python environment and Espressif toolchains under `~/.espressif/tools/`.
-- ESP32-C6 uses the RISC-V toolchain. This Mac additionally has `riscv32-esp-elf` version `esp-15.2.0_20251204` and `riscv32-esp-elf-gdb` version `17.1_20260402` under `~/.espressif/tools/tools/`; the local EIM activation script includes their `bin/` directories. If regenerating the EIM environment, retain ESP32-C6 toolchain support. Reopen ESP-IDF terminals or reselect the ESP-IDF setup in VS Code after environment changes.
-- The Espressif Documentation MCP Server is registered as `espressif-docs` at `https://mcp.espressif.com/docs`. It is remote and needs internet access plus first-time GitHub or WeChat authentication. Use it for current ESP-IDF, SoC, datasheet, and hardware guidance; local project sources take precedence when they already answer the question.
-- For ESP-IDF or Espressif SoC work, consult the documentation MCP when details are version-specific, hardware-specific, or uncertain. The Tools MCP operates on the current valid ESP-IDF project and can report real build, flash, monitor, and connected serial-device results; do not claim a flash or device behavior without a connected target and successful command output.
-- Use ESP-IDF's CMake-based project structure and `idf.py` workflows. Keep build artifacts in `build/`; do not commit generated build output or secrets.
+## Configuration and Generated Files
 
-## Components and implementation choices
+- Treat `sdkconfig` as generated configuration. Do not edit it directly unless the
+  user explicitly requests that exact file.
+- Store intentional project defaults in `sdkconfig.defaults` and target-specific
+  overrides in files such as `sdkconfig.defaults.esp32c6`. Keep changes minimal,
+  then ask the user whether to run `idf.py reconfigure`.
+- A target-specific defaults file is used only when the base
+  `sdkconfig.defaults` file also exists; create an empty base file when no common
+  defaults are needed.
+- `Kconfig` and `Kconfig.projbuild` define configuration symbols, prompts,
+  dependencies, and defaults. They do not store the project's selected values.
+- Use component `Kconfig` for component-local options. Use `Kconfig.projbuild`
+  only when an option must appear at project scope.
+- Namespace new symbols, provide a prompt, a sensible default, and useful help
+  text. Put configurable hardware assignments such as GPIOs in Kconfig instead
+  of hardcoding them.
+- After changing `Kconfig` or `Kconfig.projbuild`, ask the user whether to run
+  `idf.py reconfigure` before the next build or validation step.
+- `idf.py build` normally detects Kconfig definition changes and invokes CMake
+  reconfiguration automatically. An explicit `idf.py reconfigure` remains useful
+  for validating configuration separately before a build.
+- Changing a Kconfig default does not necessarily replace a value already stored
+  in `sdkconfig`. When the project's selected value must change, update the
+  appropriate `sdkconfig.defaults*` file and reconfigure with user approval.
+- Never edit files under `build/` or `managed_components/`.
+- Never edit `dependencies.lock` manually. Allow Component Manager to regenerate
+  it, and commit the resulting lock file when the application repository tracks
+  managed dependencies for reproducible builds.
 
-- Before implementing a peripheral, protocol, display, audio, networking, or other substantial feature, search the [Espressif Component Registry](https://components.espressif.com/) for a maintained component that fits the exact chip and ESP-IDF version. Prefer a suitable registry component over copied vendor code or a hand-rolled subsystem.
-- Add selected dependencies with `idf.py add-dependency "namespace/component_name"` (or the Component Manager manifest), pin a compatible version, and review the component's license, supported targets, maintenance status, and transitive dependencies. Do not add a component for a tiny operation already covered well by ESP-IDF's built-in driver/API; e.g. a basic GPIO blink should use the built-in GPIO driver.
-- Confirm the target chip and board pinout before choosing GPIOs. Board LEDs may be active-low, addressable, or wired to different pins. Make board-specific pins configurable rather than assuming one universal pin.
+## Components and Code Conventions
 
-## Hardware and verification
+- Before implementing a dependency, search the ESP Component Registry and inspect
+  existing `idf_component.yml` manifests. Prefer adding a suitable managed
+  dependency over duplicating it locally.
+- Add a managed dependency with
+  `idf.py add-dependency "namespace/component^<VERSION>"`. From the project root,
+  this updates the `main` component by default. Use `--component=<NAME>` for a
+  component under `components/` or `--path=<PATH>` for another component
+  directory.
+- Prefer `idf.py create-component <name>` when creating a project-local component.
+  Keep public headers in `include/`, register sources with
+  `idf_component_register(...)`, and declare dependencies explicitly with
+  `REQUIRES` or `PRIV_REQUIRES`.
+- Keep reusable functionality in components rather than a monolithic application.
+  A component intended for publication should be self-contained, documented,
+  licensed, versioned, and tested in one or more test applications.
+- Keep the firmware entry point as `void app_main(void)`.
+- Prefer ESP-IDF APIs and `ESP_LOGI/W/E` for application logging. Handle
+  `esp_err_t` results explicitly and avoid long blocking operations without
+  yielding where appropriate.
 
-- Build for the actual target with `idf.py set-target <target>` and `idf.py build`. Before flashing, confirm the connected serial port and board; flashing is a hardware write operation.
-- A successful build verifies compilation only. For LED behavior, verify on a simulator that models the selected board/pin or on the physical board; report which was used. If no suitable simulator is available, state the exact board and wiring needed for physical verification.
-- Wokwi supports ESP-IDF 6.0+ simulation. The web simulator is useful for quick visual experiments; for a repeatable local `idf.py wokwi` workflow, the `idf-wokwi` extension requires a Wokwi API token (`WOKWI_CLI_TOKEN`). Do not commit the token. A browser-side Wokwi build is a separate build and does not replace compiling the local checkout.
-- Keep examples safe at boot: avoid driving strap, flash, USB/JTAG, or reserved pins without checking the chip and board documentation.
+## Validation
 
-## Reference pages
+- Match validation to the change and follow the repository's CI matrix:
+  - documentation-only changes: run relevant documentation checks
+  - Kconfig changes: ask whether to run `idf.py reconfigure`
+  - manifest or build-system changes: run `idf.py reconfigure`
+  - firmware changes: build every affected supported target that is practical
+  - component changes: build or test the component's relevant test applications
+- Use host-based tests before hardware tests when both cover the behavior.
+- Do not flash merely because a serial device is connected. Flash only when the
+  user requested it or explicitly authorized hardware validation.
+- Before flashing, confirm the port, target, and that the device is safe to
+  overwrite. Never assume a port or monitor baud rate.
+- When authorized hardware validation is required, use the project's documented
+  command, normally `idf.py -p <PORT> flash monitor`, and capture the relevant
+  runtime output.
+- Report the exact commands, ESP-IDF version, target, and tests run. Summarize
+  configuration changes and clearly state anything not validated.
 
-- ESP-IDF setup and resources: <https://developer.espressif.com/tags/esp-idf/zh-cn/>
-- ESP-IDF programming guide: <https://docs.espressif.com/projects/esp-idf/en/latest/>
-- Component Registry: <https://components.espressif.com/>
-- ESP-IDF Tools MCP setup: <https://developer.espressif.com/blog/2026/04/esp-idf-tools-mcp-server/>
-- Espressif Documentation MCP setup: <https://developer.espressif.com/blog/2026/04/doc-mcp-server/>
+## Safety and Collaboration
+
+- Keep changes narrowly scoped. If unrelated workspace changes appear, stop and
+  ask how to proceed.
+- Ask before destructive actions such as `fullclean`, deleting files, erasing
+  flash, changing eFuses, or broadly regenerating configuration.
+- Do not commit build outputs, transient logs, generated binaries, or
+  `managed_components/` unless the repository explicitly requires them.
+- Never hardcode or commit SSIDs, passwords, API keys, certificates, private
+  keys, tokens, or device secrets. Use placeholders, configuration, environment
+  variables, or secure provisioning.
+- Review partition size and OTA/rollback implications when changes affect
+  application size, partition tables, or update behavior.
+
+## Specialized Guidance
+
+When these files are present, use the relevant workflow:
+
+- Firmware development: `skills/esp-idf/SKILL.md`
+- Component creation and publication:
+  `skills/esp-idf-components/SKILL.md`
+- ESP-IDF 5.x to 6.0 migration:
+  `skills/esp-idf-v6-migration/SKILL.md`
