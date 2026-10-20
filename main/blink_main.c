@@ -7,13 +7,7 @@
 // FreeRTOS 基础定义，以及任务延时 API。
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-// 优先使用 menuconfig 生成的配置值。
-// 若工程尚未生成该配置项，则将默认闪灯引脚设为 GPIO2。
-// GPIO2 只是示例默认值；实际使用时必须结合开发板原理图确认。
-#ifndef CONFIG_BLINK_GPIO
-#define CONFIG_BLINK_GPIO 2
-#endif
+#include "sdkconfig.h"
 
 // 日志标签会出现在日志行中，便于筛选本示例输出。
 static const char *TAG = "blink";
@@ -23,6 +17,7 @@ void app_main(void)
 {
     // 将整数形式的工程配置转换为 GPIO API 使用的引脚编号类型。
     const gpio_num_t led_gpio = (gpio_num_t)CONFIG_BLINK_GPIO;
+    ESP_ERROR_CHECK(GPIO_IS_VALID_OUTPUT_GPIO(led_gpio) ? ESP_OK : ESP_ERR_INVALID_ARG);
 
     // 清除该引脚先前可能存在的配置，回到 GPIO 的默认状态。
     // 检查返回值，避免后续在配置失败的引脚上继续操作。
