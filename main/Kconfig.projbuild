@@ -1,0 +1,13 @@
+menu "闪灯示例配置"
+
+    config BLINK_GPIO
+        int "LED 连接的 GPIO 编号"
+        range 0 48
+        default 2
+        help
+            设置为连接板载 LED 或外接 LED 的 GPIO 编号。
+            默认 GPIO2 仅适用于引脚连接匹配的开发板；不同芯片和开发板
+            可用引脚不同，请先查阅对应的芯片及开发板文档。
+            经典 ESP32 的 GPIO2 是启动绑带引脚，外接电路可能影响启动。
+
+endmenu
