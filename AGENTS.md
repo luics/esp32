@@ -193,6 +193,8 @@ are a demonstrated problem, and ask before deleting build state.
 
 ## Safety and Collaboration
 
+- 本次发布授权记录（2026-10-21）：用户明确允许将提交 `9f8f5cc`
+  推送到 `https://github.com/luics/esp32.git` 的 `main` 分支；该授权仅适用于此提交。
 - Keep changes narrowly scoped. If unrelated workspace changes appear, stop and
   ask how to proceed.
 - Ask before destructive actions such as `fullclean`, deleting files, erasing
