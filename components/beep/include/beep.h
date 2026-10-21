@@ -13,6 +13,8 @@ extern "C" {
 esp_err_t beep_init(int gpio_number, uint32_t frequency_hz, uint32_t duration_ms);
 /* 从任务或按钮回调触发短鸣，不等待播放；连续触发重新计时，不适用于 ISR。 */
 esp_err_t beep_trigger(void);
+/* 设置 0~100 的音量百分比；鸣叫进行中也会立即更新 PWM 占空比。 */
+esp_err_t beep_set_volume(uint8_t volume_percent);
 
 #ifdef __cplusplus
 }

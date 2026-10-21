@@ -9,6 +9,12 @@
 static const char *TAG = "beep";
 static TaskHandle_t beep_task;
 static TickType_t beep_duration;
+static volatile uint8_t beep_volume_percent = 100;
+
+enum {
+    BEEP_NOTIFY_TRIGGER = BIT0,
+    BEEP_NOTIFY_VOLUME = BIT1,
+};
 
 static esp_err_t set_duty(uint32_t duty)
 {
@@ -18,18 +24,49 @@ static esp_err_t set_duty(uint32_t duty)
     return ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+static esp_err_t set_volume_duty(void)
+{
+    /* 将 0~100% 映射到 0~50% PWM，占空比为零时压电蜂鸣器静音。 */
+    const uint32_t duty = (uint32_t)beep_volume_percent * 512U / 100U;
+    return set_duty(duty);
+}
+
 static void beep_worker(void *context)
 {
     (void)context;
     while (true) {
-        /* 空闲时等待按钮通知；PWM 的开关只由本任务操作。 */
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        esp_err_t ret = set_duty(512);
+        /* 空闲时等待新鸣叫；音量和鸣叫事件共用位通知，不会互相覆盖。 */
+        uint32_t events = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &events, portMAX_DELAY);
+        if ((events & BEEP_NOTIFY_TRIGGER) == 0) {
+            continue;
+        }
+
+        TickType_t deadline = xTaskGetTickCount() + beep_duration;
+        esp_err_t ret = set_volume_duty();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to start beep: %s", esp_err_to_name(ret));
-        } else {
-            /* 等待期间再次按下会唤醒并重新计时，不排队播放过期声音。 */
-            while (ulTaskNotifyTake(pdTRUE, beep_duration) != 0) {
+        }
+        while (ret == ESP_OK) {
+            const TickType_t now = xTaskGetTickCount();
+            const int32_t remaining = (int32_t)(deadline - now);
+            if (remaining <= 0) {
+                break;
+            }
+
+            events = 0;
+            if (xTaskNotifyWait(0, UINT32_MAX, &events, (TickType_t)remaining) == pdFALSE) {
+                break;
+            }
+            /* 新按键重新计时；旋钮变化只更新当前音量，不延长鸣叫。 */
+            if (events & BEEP_NOTIFY_TRIGGER) {
+                deadline = xTaskGetTickCount() + beep_duration;
+            }
+            if (events & (BEEP_NOTIFY_TRIGGER | BEEP_NOTIFY_VOLUME)) {
+                ret = set_volume_duty();
+                if (ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to update beep volume: %s", esp_err_to_name(ret));
+                }
             }
         }
         ret = set_duty(0);
@@ -115,6 +152,17 @@ esp_err_t beep_trigger(void)
 {
     ESP_RETURN_ON_FALSE(beep_task, ESP_ERR_INVALID_STATE, TAG, "Buzzer not initialized");
     /* 通知由任务上下文发送，立即返回，声音由后台任务处理。 */
-    xTaskNotifyGive(beep_task);
+    xTaskNotify(beep_task, BEEP_NOTIFY_TRIGGER, eSetBits);
+    return ESP_OK;
+}
+
+esp_err_t beep_set_volume(uint8_t volume_percent)
+{
+    ESP_RETURN_ON_FALSE(beep_task, ESP_ERR_INVALID_STATE, TAG, "Buzzer not initialized");
+    ESP_RETURN_ON_FALSE(volume_percent <= 100, ESP_ERR_INVALID_ARG, TAG,
+                        "Volume must be between 0 and 100");
+    beep_volume_percent = volume_percent;
+    /* 由蜂鸣器任务串行更新 LEDC，避免和鸣叫结束时的静音操作竞争。 */
+    xTaskNotify(beep_task, BEEP_NOTIFY_VOLUME, eSetBits);
     return ESP_OK;
 }

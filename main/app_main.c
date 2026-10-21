@@ -2,6 +2,7 @@
 #include "beep.h"
 #include "display.h"
 #include "button_input.h"
+#include "volume_control.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -48,8 +49,13 @@ void app_main(void)
     /* 初始化前检查所有引脚，避免按钮、灯珠及蜂鸣器互相覆盖 GPIO。 */
     ESP_ERROR_CHECK(CONFIG_BEEP_GPIO == CONFIG_BLINK_RGB_GPIO
                     ? ESP_ERR_INVALID_ARG : ESP_OK);
+    ESP_ERROR_CHECK(CONFIG_VOLUME_CONTROL_ADC_GPIO == CONFIG_BEEP_GPIO
+                    || CONFIG_VOLUME_CONTROL_ADC_GPIO == CONFIG_BLINK_RGB_GPIO
+                    ? ESP_ERR_INVALID_ARG : ESP_OK);
     for (size_t i = 0; i < button_count; ++i) {
         ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BEEP_GPIO
+                        ? ESP_ERR_INVALID_ARG : ESP_OK);
+        ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_VOLUME_CONTROL_ADC_GPIO
                         ? ESP_ERR_INVALID_ARG : ESP_OK);
         ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BLINK_RGB_GPIO
                         ? ESP_ERR_INVALID_ARG : ESP_OK);
@@ -68,7 +74,9 @@ void app_main(void)
                                screen_config.cs_gpio, screen_config.dc_gpio, screen_config.reset_gpio};
     /* 显示接口新增五条线，先验证与所有已有外设没有 GPIO 冲突。 */
     for (size_t i = 0; i < sizeof(screen_pins) / sizeof(screen_pins[0]); ++i) {
-        ESP_ERROR_CHECK(screen_pins[i] == CONFIG_BEEP_GPIO || screen_pins[i] == CONFIG_BLINK_RGB_GPIO
+        ESP_ERROR_CHECK(screen_pins[i] == CONFIG_BEEP_GPIO
+                        || screen_pins[i] == CONFIG_VOLUME_CONTROL_ADC_GPIO
+                        || screen_pins[i] == CONFIG_BLINK_RGB_GPIO
                         ? ESP_ERR_INVALID_ARG : ESP_OK);
         for (size_t j = 0; j < button_count; ++j) {
             ESP_ERROR_CHECK(screen_pins[i] == buttons[j].gpio ? ESP_ERR_INVALID_ARG : ESP_OK);
@@ -86,6 +94,9 @@ void app_main(void)
     /* 先让蜂鸣器准备就绪，再启用按钮回调，确保首次按下也能发声。 */
     ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ,
                               CONFIG_BEEP_DURATION_MS));
+    /* 启动电位器 ADC 采样，使旋钮位置控制蜂鸣器鸣叫强度。 */
+    ESP_ERROR_CHECK(volume_control_start(CONFIG_VOLUME_CONTROL_ADC_GPIO,
+                                         CONFIG_VOLUME_CONTROL_SAMPLE_INTERVAL_MS));
 
     /* 三个按钮共用回调，各自上下文保存颜色；主任务不返回，保证上下文有效。 */
     for (size_t i = 0; i < button_count; ++i) {

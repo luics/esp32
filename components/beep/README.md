@@ -8,6 +8,7 @@
 
 ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ,
                           CONFIG_BEEP_DURATION_MS));
+ESP_ERROR_CHECK(beep_set_volume(50));
 ESP_ERROR_CHECK(beep_trigger());
 ```
 
@@ -18,6 +19,7 @@ ESP_ERROR_CHECK(beep_trigger());
 蜂鸣器独立于闪灯队列工作，鸣叫期间再次触发会重新计时，不排队补播旧声音。
 多个未处理的通知会合并，连续快速按下可能听起来是一段延长的声音。
 时长精度为一个 FreeRTOS 系统节拍，运行时驱动错误会输出日志并尝试静音。
+`beep_set_volume()` 接收 0~100 的音量百分比，0 为静音；播放期间更新会立即生效。
 
 Wokwi 蜂鸣器引脚 2（正）连接 GPIO3，引脚 1（负）连接 GND。
 微雪 C6-Zero 无板载蜂鸣器，实板需外接适配 3.3 V GPIO 的低电流压电蜂鸣器；

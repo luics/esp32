@@ -19,7 +19,11 @@ repository when they override this baseline.
 - 报警器组件 [beep](components/beep/README.md) 使用 GPIO3 外接无源压电蜂鸣器；
   任意颜色按钮按下即触发 2 kHz、100 ms 短鸣，后台任务独立处理，连续触发重新计时。
   默认值为 `CONFIG_BEEP_GPIO`、`CONFIG_BEEP_FREQUENCY_HZ`、`CONFIG_BEEP_DURATION_MS`；
-  独占 LEDC 低速 timer 0/channel 0，实板须外接适配 GPIO 驱动的低电流蜂鸣器。
+  独占 LEDC 低速 timer 0/channel 0，支持 0～100% 运行时音量，实板须外接适配 GPIO
+  驱动的低电流蜂鸣器。音量控制组件 [volume_control](components/volume_control/README.md)
+  使用 GPIO4/ADC1 通道4 读取单联 0～10 kΩ 电位器；两端接 3V3/GND，滑臂接 GPIO4，
+  `CONFIG_VOLUME_CONTROL_ADC_GPIO` 默认 4，`CONFIG_VOLUME_CONTROL_SAMPLE_INTERVAL_MS`
+  默认 50 ms；音量在 0～100% 映射并即时更新。
 - 显示组件 [display](components/display/README.md) 驱动 ILI9341 240×320 彩色 LCD；
   点击按钮后更新对应颜色背景，并居中显示“红色/绿色/蓝色”，画面保留到下次事件。
   SPI2 独占，SCK/MOSI/CS/DC/RST 默认 GPIO6/7/18/19/20；后台分条带刷新，只保留最新颜色。
@@ -48,6 +52,7 @@ eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp
 Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
 GPIO8 → DIN、5V → VDD、GND → VSS；三个按钮分别连接 GPIO10/9/11 与 GND。
 蜂鸣器正极（2）接 GPIO3，负极（1）接 GND；验证每个按钮触发短鸣，长按不重复。
+Wokwi 电位器两端接 3V3/GND、SIG 接 GPIO4；转动旋钮验证短鸣音量随位置变化。
 点击红、绿、蓝按钮，或聚焦仿真图后按 R/G/B，分别验证红、绿、蓝闪光；板上 BOOT 对应绿色。
 长按只触发一次；快速按不同颜色时，验证立即切色并从最新事件重新计时，旧事件不补播。
 验证时实际观察三种颜色的亮灭，以及屏幕对应背景色、居中文字与快速切换，不能只检查启动日志；

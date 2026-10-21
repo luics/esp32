@@ -1,0 +1,19 @@
+menu "蜂鸣器音量控制配置"
+
+    config VOLUME_CONTROL_ADC_GPIO
+        int "蜂鸣器音量电位器 ADC 引脚"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 4
+        help
+            单联电位器滑臂（SIG）连接到此 ADC 输入。
+            微雪 ESP32-C6-Zero 默认使用 GPIO4（ADC1 通道4）。
+
+    config VOLUME_CONTROL_SAMPLE_INTERVAL_MS
+        int "蜂鸣器音量采样间隔（毫秒）"
+        range 10 1000
+        default 50
+        help
+            后台读取电位器并更新蜂鸣器音量的周期。
+
+endmenu

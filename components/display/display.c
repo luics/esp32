@@ -1,5 +1,6 @@
 #include "display.h"
 #include <stdlib.h>
+#include <string.h>
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
@@ -19,7 +20,12 @@
 #define STRIPE_HEIGHT 16
 #define GLYPH_SIZE 32
 #define TEXT_GAP 8
-#define TEXT_WIDTH (GLYPH_SIZE * 2 + TEXT_GAP)
+#define CHINESE_WIDTH (GLYPH_SIZE * 2 + TEXT_GAP)
+#define ENGLISH_GLYPH_WIDTH 12
+#define ENGLISH_GLYPH_HEIGHT 20
+#define ENGLISH_GLYPH_GAP 2
+#define ENGLISH_LINE_GAP 6
+#define TEXT_HEIGHT (GLYPH_SIZE + ENGLISH_LINE_GAP + ENGLISH_GLYPH_HEIGHT)
 
 static const char *TAG = "display";
 static bool initialized;
@@ -53,27 +59,49 @@ static uint16_t wire_color(uint16_t rgb565)
 static void render_stripe(struct display *display, int top, int color)
 {
     const uint16_t backgrounds[] = {0xf800, 0x07e0, 0x001f};
+    static const char *const english_labels[] = {"RED", "GREEN", "BLUE"};
+    static const char english_glyphs[] = "BDEGLNRU";
     const uint16_t background = color < 0 ? 0 : backgrounds[color];
     const uint16_t foreground = color == DISPLAY_COLOR_GREEN ? 0 : 0xffff;
-    const int text_left = (WIDTH - TEXT_WIDTH) / 2;
-    const int text_top = (HEIGHT - GLYPH_SIZE) / 2;
-    /* 背景和中文字在同一帧中绘制；文字块在水平、垂直方向均居中。 */
+    const int chinese_left = (WIDTH - CHINESE_WIDTH) / 2;
+    const int text_top = (HEIGHT - TEXT_HEIGHT) / 2;
+    const int english_top = text_top + GLYPH_SIZE + ENGLISH_LINE_GAP;
+    const char *english = color >= 0 ? english_labels[color] : "";
+    const int english_length = (int)strlen(english);
+    const int english_width = english_length * (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP)
+                              - ENGLISH_GLYPH_GAP;
+    const int english_left = (WIDTH - english_width) / 2;
+    /* 中文与英文上下排列为一个整体居中；英文只嵌入本项目用到的字母。 */
     for (int y = 0; y < STRIPE_HEIGHT; ++y) {
         const int glyph_y = top + y - text_top;
         for (int x = 0; x < WIDTH; ++x) {
             uint16_t pixel = background;
-            const int local_x = x - text_left;
-            if (color >= 0 && glyph_y >= 0 && glyph_y < GLYPH_SIZE && local_x >= 0) {
+            const int chinese_x = x - chinese_left;
+            if (color >= 0 && glyph_y >= 0 && glyph_y < GLYPH_SIZE && chinese_x >= 0) {
                 int glyph = -1;
-                int glyph_x = local_x;
-                if (local_x < GLYPH_SIZE) {
+                int glyph_x = chinese_x;
+                if (chinese_x < GLYPH_SIZE) {
                     glyph = color;
-                } else if (local_x >= GLYPH_SIZE + TEXT_GAP && local_x < TEXT_WIDTH) {
+                } else if (chinese_x >= GLYPH_SIZE + TEXT_GAP && chinese_x < CHINESE_WIDTH) {
                     glyph = 3; /* 第二个字固定为“色”。 */
                     glyph_x -= GLYPH_SIZE + TEXT_GAP;
                 }
                 if (glyph >= 0 && (color_font[glyph][glyph_y] & (UINT32_C(1) << (31 - glyph_x)))) {
                     pixel = foreground;
+                }
+            }
+            const int english_y = top + y - english_top;
+            const int english_x = x - english_left;
+            if (color >= 0 && english_y >= 0 && english_y < ENGLISH_GLYPH_HEIGHT
+                && english_x >= 0 && english_x < english_width) {
+                const int char_index = english_x / (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP);
+                const int glyph_x = english_x % (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP);
+                if (glyph_x < ENGLISH_GLYPH_WIDTH) {
+                    const char *glyph = strchr(english_glyphs, english[char_index]);
+                    const int glyph_index = (int)(glyph - english_glyphs);
+                    if (english_font[glyph_index][english_y] & (UINT16_C(1) << (11 - glyph_x))) {
+                        pixel = foreground;
+                    }
                 }
             }
             display->stripe[y * WIDTH + x] = wire_color(pixel);
