@@ -3,15 +3,19 @@ menu "闪灯示例配置"
     config BLINK_GPIO
         int "LED 连接的 GPIO 编号"
 
+        range 0 28 if IDF_TARGET_ESP32C5
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
+        default 6 if IDF_TARGET_ESP32C5
         default 2
         help
             设置为连接板载 LED 或外接 LED 的 GPIO 编号。
-            默认 GPIO2 仅适用于引脚连接匹配的开发板；不同芯片和开发板
+            默认引脚仅适用于接线匹配的开发板；不同芯片和开发板
             可用引脚不同，请先查阅对应的芯片及开发板文档。
             经典 ESP32 的 GPIO2 是启动绑带引脚，外接电路可能影响启动。
             ESP32-C6-DevKitC-1 默认使用 GPIO2 驱动外接普通 LED；
             板载 GPIO8 为可寻址 RGB LED，不能通过普通 GPIO 闪灯代码控制。
+            ESP32-C5-DevKitC-1 默认使用 GPIO6 驱动外接普通 LED；
+            避免 GPIO2 启动绑带引脚，板载 GPIO27 RGB LED 不由此代码控制。
 
 endmenu
