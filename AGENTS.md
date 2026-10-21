@@ -9,7 +9,7 @@ repository when they override this baseline.
 - 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
 - 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
   上电灭灯，红（GPIO10）、绿（GPIO9/BOOT）、蓝（GPIO11）按钮分别触发对应颜色，
-  亮、灭各 500 ms。按钮低电平有效，长按不重复；颜色队列容量为 16，满时丢弃新事件并告警。
+  亮、灭各 200 ms。按钮低电平有效，长按不重复；颜色队列容量为 16，满时丢弃新事件并告警。
   实板新增红、蓝按钮分别连接 GPIO10/GPIO11 与 GND；复位时松开 BOOT。
 - 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
   `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；

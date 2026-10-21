@@ -16,7 +16,7 @@ ESP_ERROR_CHECK(blink_delete(led));
 
 - `blink_create()` 初始化驱动并灭灯；失败时输出句柄为 NULL。
 - `blink_once_color()` 支持 `BLINK_COLOR_RED/GREEN/BLUE`，对应通道亮度 64/255，
-  亮 500 ms、灭 500 ms，再返回；无效颜色返回 `ESP_ERR_INVALID_ARG`。
+  亮 200 ms、灭 200 ms，再返回；无效颜色返回 `ESP_ERR_INVALID_ARG`。
 - `blink_once()` 保留蓝光 RGB=(0, 0, 64) 的兼容接口。
   延时让出 CPU；只能在任务中调用，同一句柄需串行使用。
 - `blink_delete()` 释放驱动；调用前结束所有使用并确保灯已熄灭。
