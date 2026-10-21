@@ -18,6 +18,8 @@ ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_GPIO, on_press, context,
 到期无新事件才灭灯，不积压或补播旧颜色。同色再次按下会延长亮灯时间。
 同一回调还调用 `beep_trigger()`，通过独立后台任务发出短鸣，不等待闪灯结束。
 声音配置及接线见 [beep 说明](../beep/README.md)。
+同一回调提交显示屏最新颜色，独立后台刷新并保持对应背景和居中文字，
+不等待 SPI 传输；接线及显示行为见 [display 说明](../display/README.md)。
 
 组件 Kconfig 的引脚默认值如下，运行时由调用方传入：
 

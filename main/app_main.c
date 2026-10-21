@@ -1,5 +1,6 @@
 #include "blink.h"
 #include "beep.h"
+#include "display.h"
 #include "button_input.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -13,6 +14,8 @@ typedef struct {
     int gpio;
     blink_color_t color;
     const char *name;
+    display_color_t screen_color;
+    display_handle_t screen;
     QueueHandle_t events;
     button_input_handle_t handle;
 } color_button_t;
@@ -25,6 +28,11 @@ static void on_button_press(void *context)
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to trigger beep: %s", esp_err_to_name(ret));
     }
+    /* 屏幕和闪灯分别提交最新颜色，SPI 刷新不会阻塞按钮回调。 */
+    const esp_err_t display_ret = display_show_color(button->screen, button->screen_color);
+    if (display_ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to update display: %s", esp_err_to_name(display_ret));
+    }
     /* 单槽队列覆盖尚未处理的旧颜色，唤醒主任务立即响应最新按下。 */
     xQueueOverwrite(button->events, &button->color);
 }
@@ -32,9 +40,9 @@ static void on_button_press(void *context)
 void app_main(void)
 {
     color_button_t buttons[] = {
-        {.gpio = CONFIG_BUTTON_INPUT_RED_GPIO, .color = BLINK_COLOR_RED, .name = "red"},
-        {.gpio = CONFIG_BUTTON_INPUT_GPIO, .color = BLINK_COLOR_GREEN, .name = "green"},
-        {.gpio = CONFIG_BUTTON_INPUT_BLUE_GPIO, .color = BLINK_COLOR_BLUE, .name = "blue"},
+        {.gpio = CONFIG_BUTTON_INPUT_RED_GPIO, .color = BLINK_COLOR_RED, .name = "red", .screen_color = DISPLAY_COLOR_RED},
+        {.gpio = CONFIG_BUTTON_INPUT_GPIO, .color = BLINK_COLOR_GREEN, .name = "green", .screen_color = DISPLAY_COLOR_GREEN},
+        {.gpio = CONFIG_BUTTON_INPUT_BLUE_GPIO, .color = BLINK_COLOR_BLUE, .name = "blue", .screen_color = DISPLAY_COLOR_BLUE},
     };
     const size_t button_count = sizeof(buttons) / sizeof(buttons[0]);
     /* 初始化前检查所有引脚，避免按钮、灯珠及蜂鸣器互相覆盖 GPIO。 */
@@ -51,6 +59,24 @@ void app_main(void)
         }
     }
 
+    const display_config_t screen_config = {
+        .sclk_gpio = CONFIG_DISPLAY_SCLK_GPIO, .mosi_gpio = CONFIG_DISPLAY_MOSI_GPIO,
+        .cs_gpio = CONFIG_DISPLAY_CS_GPIO, .dc_gpio = CONFIG_DISPLAY_DC_GPIO,
+        .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
+    };
+    const int screen_pins[] = {screen_config.sclk_gpio, screen_config.mosi_gpio,
+                               screen_config.cs_gpio, screen_config.dc_gpio, screen_config.reset_gpio};
+    /* 显示接口新增五条线，先验证与所有已有外设没有 GPIO 冲突。 */
+    for (size_t i = 0; i < sizeof(screen_pins) / sizeof(screen_pins[0]); ++i) {
+        ESP_ERROR_CHECK(screen_pins[i] == CONFIG_BEEP_GPIO || screen_pins[i] == CONFIG_BLINK_RGB_GPIO
+                        ? ESP_ERR_INVALID_ARG : ESP_OK);
+        for (size_t j = 0; j < button_count; ++j) {
+            ESP_ERROR_CHECK(screen_pins[i] == buttons[j].gpio ? ESP_ERR_INVALID_ARG : ESP_OK);
+        }
+    }
+    display_handle_t screen = NULL;
+    ESP_ERROR_CHECK(display_init(&screen_config, &screen));
+
     /* 上电灭灯，单槽队列只保留最新颜色，避免快速点击积压。 */
     blink_handle_t led = NULL;
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
@@ -63,6 +89,7 @@ void app_main(void)
 
     /* 三个按钮共用回调，各自上下文保存颜色；主任务不返回，保证上下文有效。 */
     for (size_t i = 0; i < button_count; ++i) {
+        buttons[i].screen = screen;
         buttons[i].events = events;
         ESP_ERROR_CHECK(button_input_create(buttons[i].gpio, on_button_press,
                                             &buttons[i], &buttons[i].handle));

@@ -20,6 +20,10 @@ repository when they override this baseline.
   任意颜色按钮按下即触发 2 kHz、100 ms 短鸣，后台任务独立处理，连续触发重新计时。
   默认值为 `CONFIG_BEEP_GPIO`、`CONFIG_BEEP_FREQUENCY_HZ`、`CONFIG_BEEP_DURATION_MS`；
   独占 LEDC 低速 timer 0/channel 0，实板须外接适配 GPIO 驱动的低电流蜂鸣器。
+- 显示组件 [display](components/display/README.md) 驱动 ILI9341 240×320 彩色 LCD；
+  点击按钮后更新对应颜色背景，并居中显示“红色/绿色/蓝色”，画面保留到下次事件。
+  SPI2 独占，SCK/MOSI/CS/DC/RST 默认 GPIO6/7/18/19/20；后台分条带刷新，只保留最新颜色。
+  Wokwi 不提供 RST/背光引脚，RST=20 只需在实板接线。
 - 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
 
 构建命令（重新配置的确认规则见下文）：
@@ -46,7 +50,7 @@ GPIO8 → DIN、5V → VDD、GND → VSS；三个按钮分别连接 GPIO10/9/11 
 蜂鸣器正极（2）接 GPIO3，负极（1）接 GND；验证每个按钮触发短鸣，长按不重复。
 点击红、绿、蓝按钮，或聚焦仿真图后按 R/G/B，分别验证红、绿、蓝闪光；板上 BOOT 对应绿色。
 长按只触发一次；快速按不同颜色时，验证立即切色并从最新事件重新计时，旧事件不补播。
-验证时实际观察三种颜色的亮灭，不能只检查启动日志；
+验证时实际观察三种颜色的亮灭，以及屏幕对应背景色、居中文字与快速切换，不能只检查启动日志；
 板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件；仿真使用 GRB 的独立固件，
 实板使用默认 RGB 固件。实板烧录验证尚未进行。
 

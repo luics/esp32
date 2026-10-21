@@ -1,0 +1,42 @@
+menu "ILI9341 显示屏配置"
+    config DISPLAY_SCLK_GPIO
+        int "ILI9341 SPI 时钟 GPIO"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 6
+        help
+            ILI9341 的SPI 时钟引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+
+    config DISPLAY_MOSI_GPIO
+        int "ILI9341 SPI 数据输出 GPIO"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 7
+        help
+            ILI9341 的SPI 数据输出引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+
+    config DISPLAY_CS_GPIO
+        int "ILI9341 片选 GPIO"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 18
+        help
+            ILI9341 的片选引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+
+    config DISPLAY_DC_GPIO
+        int "ILI9341 数据/命令 GPIO"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 19
+        help
+            ILI9341 的数据/命令引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+
+    config DISPLAY_RST_GPIO
+        int "ILI9341 复位 GPIO"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 20
+        help
+            ILI9341 的复位引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+
+endmenu
