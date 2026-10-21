@@ -158,11 +158,14 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
     ESP_GOTO_ON_ERROR(esp_lcd_new_panel_io_spi(SPI2_HOST, &io_config, &display->io), cleanup, TAG, "Panel IO init failed");
     const esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = config->reset_gpio,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB, .bits_per_pixel = 16,
+        /* 面板使用 BGR 子像素顺序；绘图缓冲仍使用标准 RGB565。 */
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR, .bits_per_pixel = 16,
     };
     ESP_GOTO_ON_ERROR(esp_lcd_new_panel_ili9341(display->io, &panel_config, &display->panel), cleanup, TAG, "Panel init failed");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_reset(display->panel), cleanup, TAG, "Panel reset failed");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_init(display->panel), cleanup, TAG, "Panel commands failed");
+    /* 竖屏连接器朝下：设置横向扫描方向，避免文字左右镜像。 */
+    ESP_GOTO_ON_ERROR(esp_lcd_panel_mirror(display->panel, true, false), cleanup, TAG, "Panel orientation failed");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_disp_on_off(display->panel, true), cleanup, TAG, "Display on failed");
     /* 独立任务按最新颜色刷新；初始化成功后实例与任务随应用持续运行。 */
     if (xTaskCreate(display_worker, "display", 3072, display, 2, NULL) != pdPASS) {
