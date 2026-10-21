@@ -8,9 +8,11 @@ repository when they override this baseline.
 
 - 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
 - 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
-  蓝光亮、灭各 500 ms。实板无需外接 LED 或电阻。
+  上电灭灯，按下 BOOT（GPIO9，低电平有效）后蓝光亮、灭各 500 ms。
+  长按不重复，连续按下逐次排队；复位时松开 BOOT，避免进入下载模式。
 - 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
-  `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)。
+  `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；
+  按钮组件使用 `CONFIG_BUTTON_INPUT_GPIO`，接口见 [button_input 说明](components/button_input/README.md)。
 - 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
 
 构建命令（重新配置的确认规则见下文）：
@@ -25,7 +27,9 @@ eim run "idf.py build" stable-mcp
 `build/flasher_args.json` 和 `build/esp32_blink.elf`，无需另行合并固件。
 
 Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
-GPIO8 → DIN、5V → VDD、GND → VSS。验证时实际观察蓝灯亮灭，不能只检查启动日志；
+GPIO8 → DIN、5V → VDD、GND → VSS；绿色按钮连接 GPIO9 与 GND。
+启动后点击绿色按钮或板上 BOOT，验证蓝灯从灭到亮再灭；长按只闪一次，松开再按可再次触发。
+验证时实际观察蓝灯亮灭，不能只检查启动日志；
 板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件，蓝光也不能验证
 RGB/GRB 的红绿通道顺序；实板烧录验证尚未进行。
 
@@ -125,6 +129,8 @@ are a demonstrated problem, and ask before deleting build state.
 
 ## Components and Code Conventions
 
+- 新增或修改代码时，为主流程添加简洁的中文注释，说明初始化、事件传递、
+  关键状态变化及错误清理的意图；注释应随实现同步更新，避免逐行复述代码。
 - Before implementing a dependency, search the ESP Component Registry and inspect
   existing `idf_component.yml` manifests. Prefer adding a suitable managed
   dependency over duplicating it locally.

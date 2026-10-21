@@ -1,4 +1,5 @@
 #include "blink.h"
+#include <stdlib.h>
 #include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -8,9 +9,15 @@
 
 static const char *TAG = "blink";
 
-/* 在当前任务中持续闪烁 WS2812；正常运行时不返回，失败时释放驱动并返回错误码。 */
-esp_err_t blink_run(int gpio_number)
+struct blink {
+    led_strip_handle_t strip;
+};
+
+/* 初始化后立即灭灯，后续闪光复用同一个 RMT 通道。 */
+esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle)
 {
+    ESP_RETURN_ON_FALSE(out_handle, ESP_ERR_INVALID_ARG, TAG, "Missing output handle");
+    *out_handle = NULL;
     /* 确认引脚支持输出，避免使用无效编号或仅支持输入的 GPIO。 */
     ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(gpio_number), ESP_ERR_INVALID_ARG,
                         TAG, "Invalid output GPIO %d", gpio_number);
@@ -27,30 +34,67 @@ esp_err_t blink_run(int gpio_number)
         .clk_src = RMT_CLK_SRC_DEFAULT,
         .resolution_hz = 10 * 1000 * 1000,
     };
-    led_strip_handle_t strip = NULL;
-    ESP_RETURN_ON_ERROR(led_strip_new_rmt_device(&strip_config, &rmt_config, &strip),
-                        TAG, "Failed to create WS2812 driver");
+    /* 创建可复用句柄，将灯珠驱动的生命周期与单次闪光分离。 */
+    blink_handle_t handle = calloc(1, sizeof(*handle));
+    ESP_RETURN_ON_FALSE(handle, ESP_ERR_NO_MEM, TAG, "Failed to allocate LED");
+    esp_err_t ret = led_strip_new_rmt_device(&strip_config, &rmt_config, &handle->strip);
+    if (ret != ESP_OK) {
+        free(handle);
+        return ret;
+    }
+    /* 上电先灭灯；初始化失败时清理已创建的驱动并保留最初错误码。 */
+    ret = led_strip_clear(handle->strip);
+    if (ret != ESP_OK) {
+        const esp_err_t cleanup_ret = blink_delete(handle);
+        if (cleanup_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to delete LED driver: %s", esp_err_to_name(cleanup_ret));
+        }
+        return ret;
+    }
+    *out_handle = handle;
+    return ESP_OK;
+}
 
-    esp_err_t ret = ESP_OK;
-    ESP_GOTO_ON_ERROR(led_strip_clear(strip), cleanup, TAG, "Failed to clear LED");
-    ESP_LOGI(TAG, "Blinking WS2812 on GPIO %d (RGB, blue, 500 ms on/off)", gpio_number);
-
-    while (true) {
-        /* 蓝光使用 64/255 亮度，便于观察；蓝色通道在 RGB/GRB 顺序中位置相同。 */
-        ESP_GOTO_ON_ERROR(led_strip_set_pixel(strip, 0, 0, 0, 64), cleanup,
-                          TAG, "Failed to set LED color");
-        /* 设置颜色只更新缓冲区，refresh 才会发送到灯珠。 */
-        ESP_GOTO_ON_ERROR(led_strip_refresh(strip), cleanup, TAG, "Failed to turn LED on");
-        /* 将毫秒转换为系统节拍；延时期间让出 CPU，供其他任务运行。 */
-        vTaskDelay(pdMS_TO_TICKS(500));
-
-        ESP_GOTO_ON_ERROR(led_strip_clear(strip), cleanup, TAG, "Failed to turn LED off");
+esp_err_t blink_once(blink_handle_t handle)
+{
+    ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
+    /* 蓝光亮 500 ms，灭 500 ms，让连续按下产生的闪光也能区分。 */
+    ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, 0, 0, 64),
+                        TAG, "Failed to set LED color");
+    /* 设置颜色只更新缓冲区，refresh 才会发送到灯珠。 */
+    esp_err_t ret = led_strip_refresh(handle->strip);
+    if (ret == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+    /* 亮灯结束或发送失败后均尝试灭灯；发送失败时优先返回原错误。 */
+    const esp_err_t clear_ret = led_strip_clear(handle->strip);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ESP_RETURN_ON_ERROR(clear_ret, TAG, "Failed to turn LED off");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    return ESP_OK;
+}
 
-cleanup:
-    /* 保留最初的错误码，同时释放 RMT 通道和驱动内存。 */
-    const esp_err_t cleanup_ret = led_strip_del(strip);
+esp_err_t blink_delete(blink_handle_t handle)
+{
+    ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
+    /* 先释放底层驱动，成功后再释放包装句柄；失败时保留句柄以便重试。 */
+    ESP_RETURN_ON_ERROR(led_strip_del(handle->strip), TAG, "Failed to delete LED driver");
+    free(handle);
+    return ESP_OK;
+}
+
+/* 保留原有的持续闪烁接口。 */
+esp_err_t blink_run(int gpio_number)
+{
+    blink_handle_t handle = NULL;
+    ESP_RETURN_ON_ERROR(blink_create(gpio_number, &handle), TAG, "Failed to create LED");
+    esp_err_t ret;
+    while ((ret = blink_once(handle)) == ESP_OK) {
+    }
+    /* 持续闪烁出错后释放驱动，清理结果不覆盖导致退出的错误码。 */
+    const esp_err_t cleanup_ret = blink_delete(handle);
     if (cleanup_ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to delete LED driver: %s", esp_err_to_name(cleanup_ret));
     }

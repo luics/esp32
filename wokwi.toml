@@ -1,6 +1,7 @@
 [wokwi]
 # C6-Zero 闪灯等效仿真：使用 DevKitC-1 的 GPIO8 连接独立 WS2812 元件。
-# 板型及颜色顺序差异见 README.md；固件保持微雪要求的 RGB 顺序。
+# 绿色按钮 GPIO9 -> GND，按下后调用 blink 闪光一次。
+# 板型及颜色顺序差异见 AGENTS.md；固件保持微雪要求的 RGB 顺序。
 version = 1
 firmware = "build/flasher_args.json"
 elf = "build/esp32_blink.elf"
