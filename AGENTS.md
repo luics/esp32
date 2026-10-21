@@ -9,12 +9,17 @@ repository when they override this baseline.
 - 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
 - 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
   上电灭灯，红（GPIO10）、绿（GPIO9/BOOT）、蓝（GPIO11）按钮分别触发对应颜色，
-  亮、灭各 200 ms。按钮低电平有效，长按不重复；颜色队列容量为 16，满时丢弃新事件并告警。
+  最新按钮优先：立即切换颜色并重新计时 200 ms，到期无新按下则灭灯，无强制灭灯等待。
+  单槽队列覆盖未处理的旧颜色；同色再次按下延长亮灯，按钮低电平有效、长按不重复。
   实板新增红、蓝按钮分别连接 GPIO10/GPIO11 与 GND；复位时松开 BOOT。
 - 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
   `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；
   绿色按钮保留 `CONFIG_BUTTON_INPUT_GPIO`，红、蓝分别使用 `CONFIG_BUTTON_INPUT_RED_GPIO`、
   `CONFIG_BUTTON_INPUT_BLUE_GPIO`；接口见 [button_input 说明](components/button_input/README.md)。
+- 报警器组件 [beep](components/beep/README.md) 使用 GPIO3 外接无源压电蜂鸣器；
+  任意颜色按钮按下即触发 2 kHz、100 ms 短鸣，后台任务独立处理，连续触发重新计时。
+  默认值为 `CONFIG_BEEP_GPIO`、`CONFIG_BEEP_FREQUENCY_HZ`、`CONFIG_BEEP_DURATION_MS`；
+  独占 LEDC 低速 timer 0/channel 0，实板须外接适配 GPIO 驱动的低电流蜂鸣器。
 - 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
 
 构建命令（重新配置的确认规则见下文）：
@@ -38,8 +43,9 @@ eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp
 
 Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
 GPIO8 → DIN、5V → VDD、GND → VSS；三个按钮分别连接 GPIO10/9/11 与 GND。
+蜂鸣器正极（2）接 GPIO3，负极（1）接 GND；验证每个按钮触发短鸣，长按不重复。
 点击红、绿、蓝按钮，或聚焦仿真图后按 R/G/B，分别验证红、绿、蓝闪光；板上 BOOT 对应绿色。
-长按只闪一次，连续点击按入队顺序闪光。
+长按只触发一次；快速按不同颜色时，验证立即切色并从最新事件重新计时，旧事件不补播。
 验证时实际观察三种颜色的亮灭，不能只检查启动日志；
 板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件；仿真使用 GRB 的独立固件，
 实板使用默认 RGB 固件。实板烧录验证尚未进行。

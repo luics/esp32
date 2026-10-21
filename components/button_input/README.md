@@ -13,8 +13,11 @@ ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_GPIO, on_press, context,
 调用方声明 `PRIV_REQUIRES button_input`。`on_press(void *context)` 在驱动任务中执行，
 必须快速返回，不能调用阻塞操作；回调及 context 在按钮使用期间保持有效。
 初始化失败返回 `esp_err_t`，输出句柄为 NULL。本组件不创建闪光任务，也不直接依赖 blink。
-主应用为三个按钮分别创建实例，在回调中将颜色写入队列，在主任务中逐次调用
-`blink_once_color()`。队列可缓存 16 次按下，满时丢弃新事件并打印告警；回调不等待队列空间。
+主应用为三个按钮分别创建实例，在回调中覆盖单槽队列里的旧颜色，主任务立即调用
+`blink_set_color()` 切色并重新计时 200 ms；期间再次按下会立即更新颜色和计时，
+到期无新事件才灭灯，不积压或补播旧颜色。同色再次按下会延长亮灯时间。
+同一回调还调用 `beep_trigger()`，通过独立后台任务发出短鸣，不等待闪灯结束。
+声音配置及接线见 [beep 说明](../beep/README.md)。
 
 组件 Kconfig 的引脚默认值如下，运行时由调用方传入：
 

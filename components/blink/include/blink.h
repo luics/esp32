@@ -16,6 +16,9 @@ typedef enum {
 
 /* 创建单颗 WS2812（数据顺序由组件 Kconfig 选择），并将其熄灭；成功后由调用方持有句柄。 */
 esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle);
+/* 立即设置颜色或灭灯，不包含亮灭延时；数据发送同步完成，同一句柄须串行调用。 */
+esp_err_t blink_set_color(blink_handle_t handle, blink_color_t color);
+esp_err_t blink_off(blink_handle_t handle);
 /* 在当前任务中蓝光亮、灭各 200 ms；只能从任务调用，同一句柄需串行使用。 */
 esp_err_t blink_once(blink_handle_t handle);
 /* 指定颜色亮、灭各 200 ms；与 blink_once 一样只能在任务中串行调用。 */

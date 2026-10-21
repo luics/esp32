@@ -66,24 +66,36 @@ esp_err_t blink_once(blink_handle_t handle)
     return blink_once_color(handle, BLINK_COLOR_BLUE);
 }
 
-esp_err_t blink_once_color(blink_handle_t handle, blink_color_t color)
+esp_err_t blink_set_color(blink_handle_t handle, blink_color_t color)
 {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
     ESP_RETURN_ON_FALSE(color >= BLINK_COLOR_RED && color <= BLINK_COLOR_BLUE,
                         ESP_ERR_INVALID_ARG, TAG, "Invalid LED color");
-    /* 对应颜色使用 64/255 亮度；亮、灭各 200 ms，连续闪光也能区分。 */
+    /* 仅更新颜色并发送，时长交给调用方，以便等待过程被新按钮事件唤醒。 */
     const unsigned red = color == BLINK_COLOR_RED ? 64 : 0;
     const unsigned green = color == BLINK_COLOR_GREEN ? 64 : 0;
     const unsigned blue = color == BLINK_COLOR_BLUE ? 64 : 0;
     ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, red, green, blue),
                         TAG, "Failed to set LED color");
     /* 设置颜色只更新缓冲区，refresh 才会发送到灯珠。 */
-    esp_err_t ret = led_strip_refresh(handle->strip);
+    return led_strip_refresh(handle->strip);
+}
+
+esp_err_t blink_off(blink_handle_t handle)
+{
+    ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
+    return led_strip_clear(handle->strip);
+}
+
+esp_err_t blink_once_color(blink_handle_t handle, blink_color_t color)
+{
+    /* 保留原有阻塞接口供其他调用方使用；按钮主流程改用即时控制接口。 */
+    esp_err_t ret = blink_set_color(handle, color);
     if (ret == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(200));
     }
     /* 亮灯结束或发送失败后均尝试灭灯；发送失败时优先返回原错误。 */
-    const esp_err_t clear_ret = led_strip_clear(handle->strip);
+    const esp_err_t clear_ret = blink_off(handle);
     if (ret != ESP_OK) {
         return ret;
     }

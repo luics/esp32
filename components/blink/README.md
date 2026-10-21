@@ -15,6 +15,8 @@ ESP_ERROR_CHECK(blink_delete(led));
 调用方声明 `PRIV_REQUIRES blink`。
 
 - `blink_create()` 初始化驱动并灭灯；失败时输出句柄为 NULL。
+- `blink_set_color()` 立即显示指定颜色，`blink_off()` 立即灭灯；不包含亮灭延时，
+  数据发送同步完成，同一句柄须串行使用。
 - `blink_once_color()` 支持 `BLINK_COLOR_RED/GREEN/BLUE`，对应通道亮度 64/255，
   亮 200 ms、灭 200 ms，再返回；无效颜色返回 `ESP_ERR_INVALID_ARG`。
 - `blink_once()` 保留蓝光 RGB=(0, 0, 64) 的兼容接口。
@@ -23,7 +25,9 @@ ESP_ERROR_CHECK(blink_delete(led));
 - `blink_run(int gpio_number)` 保留持续闪烁方式，正常运行不返回。
 
 接口返回 `esp_err_t`；非法参数返回 `ESP_ERR_INVALID_ARG`，其他失败返回驱动错误码。
-应用启动后保持 LED 关闭，由按钮颜色队列通知主任务调用 `blink_once_color()`。
+应用启动后保持 LED 关闭；按钮单槽队列只保留最新颜色，主任务使用 `blink_set_color()`
+立即切色并等待最多 200 ms，新事件会唤醒并重新计时，到期后调用 `blink_off()`。
+同色再次按下延长亮灯；灭灯后无需等待固定间隔即可再次点亮。
 组件 Kconfig 的 `CONFIG_BLINK_LED_ORDER_GRB` 默认关闭，实板采用 RGB；
 Wokwi 独立构建启用 GRB，以正确显示红、绿通道。
 依赖版本见 `idf_component.yml`，硬件与仿真差异见 [项目说明](../../AGENTS.md)。

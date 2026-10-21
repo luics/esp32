@@ -6,7 +6,7 @@
     { "type": "board-esp32-c6-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
     { "type": "wokwi-neopixel", "id": "rgb", "top": 48, "left": 292, "attrs": {} },
     { "type": "wokwi-text", "id": "note", "top": -60, "left": 0,
-      "attrs": { "text": "Press R / G / B\nFlash the matching color" } },
+      "attrs": { "text": "Press R / G / B\nFlash color + beep" } },
     { "type": "wokwi-text", "id": "rgb_label", "top": 76, "left": 276,
       "attrs": { "text": "LED · GPIO8" } },
     { "type": "wokwi-pushbutton", "id": "button_red", "top": 190, "left": 190,
@@ -14,7 +14,11 @@
     { "type": "wokwi-pushbutton", "id": "button", "top": 190, "left": 270,
       "attrs": { "color": "green", "label": "Green · GPIO9", "key": "G" } },
     { "type": "wokwi-pushbutton", "id": "button_blue", "top": 190, "left": 350,
-      "attrs": { "color": "blue", "label": "Blue · GPIO11", "key": "B" } }
+      "attrs": { "color": "blue", "label": "Blue · GPIO11", "key": "B" } },
+    { "type": "wokwi-buzzer", "id": "buzzer", "top": 56, "left": 400,
+      "attrs": { "volume": "0.2" } },
+    { "type": "wokwi-text", "id": "buzzer_label", "top": 120, "left": 390,
+      "attrs": { "text": "Beep · GPIO3" } }
   ],
   "connections": [
     ["esp:8", "rgb:DIN", "green", []],
@@ -25,6 +29,8 @@
     ["esp:10", "button_red:1.l", "red", []],
     ["button_red:2.l", "button:2.l", "black", []],
     ["esp:11", "button_blue:1.l", "blue", []],
-    ["button_blue:2.l", "button:2.l", "black", []]
+    ["button_blue:2.l", "button:2.l", "black", []],
+    ["esp:3", "buzzer:2", "orange", []],
+    ["buzzer:1", "esp:GND.1", "black", []]
   ]
 }

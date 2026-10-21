@@ -1,4 +1,5 @@
 #include "blink.h"
+#include "beep.h"
 #include "button_input.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -19,10 +20,13 @@ typedef struct {
 static void on_button_press(void *context)
 {
     const color_button_t *button = context;
-    /* 回调仅将颜色入队，零等待返回；闪光期间仍可检测其他按钮。 */
-    if (xQueueSend(button->events, &button->color, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "Flash queue full: dropped %s press", button->name);
+    /* 声音独立触发，不等待短鸣结束。 */
+    const esp_err_t ret = beep_trigger();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to trigger beep: %s", esp_err_to_name(ret));
     }
+    /* 单槽队列覆盖尚未处理的旧颜色，唤醒主任务立即响应最新按下。 */
+    xQueueOverwrite(button->events, &button->color);
 }
 
 void app_main(void)
@@ -33,8 +37,12 @@ void app_main(void)
         {.gpio = CONFIG_BUTTON_INPUT_BLUE_GPIO, .color = BLINK_COLOR_BLUE, .name = "blue"},
     };
     const size_t button_count = sizeof(buttons) / sizeof(buttons[0]);
-    /* 初始化前检查所有引脚，避免按钮之间或按钮与灯珠之间发生冲突。 */
+    /* 初始化前检查所有引脚，避免按钮、灯珠及蜂鸣器互相覆盖 GPIO。 */
+    ESP_ERROR_CHECK(CONFIG_BEEP_GPIO == CONFIG_BLINK_RGB_GPIO
+                    ? ESP_ERR_INVALID_ARG : ESP_OK);
     for (size_t i = 0; i < button_count; ++i) {
+        ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BEEP_GPIO
+                        ? ESP_ERR_INVALID_ARG : ESP_OK);
         ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BLINK_RGB_GPIO
                         ? ESP_ERR_INVALID_ARG : ESP_OK);
         for (size_t j = 0; j < i; ++j) {
@@ -43,11 +51,15 @@ void app_main(void)
         }
     }
 
-    /* 先初始化灯珠并熄灭，再创建最多缓存 16 次按下的颜色队列。 */
+    /* 上电灭灯，单槽队列只保留最新颜色，避免快速点击积压。 */
     blink_handle_t led = NULL;
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
-    QueueHandle_t events = xQueueCreate(16, sizeof(blink_color_t));
+    QueueHandle_t events = xQueueCreate(1, sizeof(blink_color_t));
     ESP_ERROR_CHECK(events ? ESP_OK : ESP_ERR_NO_MEM);
+
+    /* 先让蜂鸣器准备就绪，再启用按钮回调，确保首次按下也能发声。 */
+    ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ,
+                              CONFIG_BEEP_DURATION_MS));
 
     /* 三个按钮共用回调，各自上下文保存颜色；主任务不返回，保证上下文有效。 */
     for (size_t i = 0; i < button_count; ++i) {
@@ -56,12 +68,19 @@ void app_main(void)
                                             &buttons[i], &buttons[i].handle));
         ESP_LOGI(TAG, "Ready: %s button GPIO %d", buttons[i].name, buttons[i].gpio);
     }
+    /* 灭灯时无限等待；亮灯时等待新颜色或 200 ms 到期，不再使用阻塞闪光接口。 */
+    TickType_t wait_ticks = portMAX_DELAY;
     while (true) {
         blink_color_t color;
-        /* 按入队顺序逐次闪光，保留连续点击的颜色及顺序；长按不重复入队。 */
-        if (xQueueReceive(events, &color, portMAX_DELAY) == pdTRUE) {
-            ESP_LOGI(TAG, "Button pressed: flash %s", buttons[color].name);
-            ESP_ERROR_CHECK(blink_once_color(led, color));
+        if (xQueueReceive(events, &color, wait_ticks) == pdTRUE) {
+            /* 新事件立即切色；同色重复按下也会从这次显示起重新计时。 */
+            ESP_ERROR_CHECK(blink_set_color(led, color));
+            wait_ticks = pdMS_TO_TICKS(200);
+            ESP_LOGI(TAG, "Button pressed: show %s for 200 ms", buttons[color].name);
+        } else {
+            /* 期间没有新事件才灭灯；灭灯后仍可立即响应下一次按下。 */
+            ESP_ERROR_CHECK(blink_off(led));
+            wait_ticks = portMAX_DELAY;
         }
     }
 }
