@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "led_strip.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "blink";
 
@@ -22,12 +23,16 @@ esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle)
     ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(gpio_number), ESP_ERR_INVALID_ARG,
                         TAG, "Invalid output GPIO %d", gpio_number);
 
-    /* C6-Zero 板载单颗 WS2812，按微雪说明使用 RGB 数据顺序。 */
+    /* 实板使用 RGB；Wokwi 独立构建选择 GRB，使逻辑颜色与显示颜色一致。 */
     const led_strip_config_t strip_config = {
         .strip_gpio_num = gpio_number,
         .max_leds = 1,
         .led_model = LED_MODEL_WS2812,
+#ifdef CONFIG_BLINK_LED_ORDER_GRB
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+#else
         .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,
+#endif
     };
     /* RMT 产生 WS2812 所需时序，10 MHz 分辨率对应每个节拍 100 ns。 */
     const led_strip_rmt_config_t rmt_config = {
@@ -57,9 +62,20 @@ esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle)
 
 esp_err_t blink_once(blink_handle_t handle)
 {
+    /* 保留原接口的蓝光行为，统一复用指定颜色的闪光流程。 */
+    return blink_once_color(handle, BLINK_COLOR_BLUE);
+}
+
+esp_err_t blink_once_color(blink_handle_t handle, blink_color_t color)
+{
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
-    /* 蓝光亮 500 ms，灭 500 ms，让连续按下产生的闪光也能区分。 */
-    ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, 0, 0, 64),
+    ESP_RETURN_ON_FALSE(color >= BLINK_COLOR_RED && color <= BLINK_COLOR_BLUE,
+                        ESP_ERR_INVALID_ARG, TAG, "Invalid LED color");
+    /* 对应颜色使用 64/255 亮度；亮、灭各 500 ms，连续闪光也能区分。 */
+    const unsigned red = color == BLINK_COLOR_RED ? 64 : 0;
+    const unsigned green = color == BLINK_COLOR_GREEN ? 64 : 0;
+    const unsigned blue = color == BLINK_COLOR_BLUE ? 64 : 0;
+    ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, red, green, blue),
                         TAG, "Failed to set LED color");
     /* 设置颜色只更新缓冲区，refresh 才会发送到灯珠。 */
     esp_err_t ret = led_strip_refresh(handle->strip);

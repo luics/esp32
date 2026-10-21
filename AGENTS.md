@@ -8,11 +8,13 @@ repository when they override this baseline.
 
 - 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
 - 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
-  上电灭灯，按下 BOOT（GPIO9，低电平有效）后蓝光亮、灭各 500 ms。
-  长按不重复，连续按下逐次排队；复位时松开 BOOT，避免进入下载模式。
+  上电灭灯，红（GPIO10）、绿（GPIO9/BOOT）、蓝（GPIO11）按钮分别触发对应颜色，
+  亮、灭各 500 ms。按钮低电平有效，长按不重复；颜色队列容量为 16，满时丢弃新事件并告警。
+  实板新增红、蓝按钮分别连接 GPIO10/GPIO11 与 GND；复位时松开 BOOT。
 - 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
   `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；
-  按钮组件使用 `CONFIG_BUTTON_INPUT_GPIO`，接口见 [button_input 说明](components/button_input/README.md)。
+  绿色按钮保留 `CONFIG_BUTTON_INPUT_GPIO`，红、蓝分别使用 `CONFIG_BUTTON_INPUT_RED_GPIO`、
+  `CONFIG_BUTTON_INPUT_BLUE_GPIO`；接口见 [button_input 说明](components/button_input/README.md)。
 - 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
 
 构建命令（重新配置的确认规则见下文）：
@@ -22,16 +24,25 @@ eim run "idf.py reconfigure" stable-mcp
 eim run "idf.py build" stable-mcp
 ```
 
-重新配置后确认生成的 `sdkconfig` 中 `CONFIG_BLINK_RGB_GPIO=8`；已有配置可能覆盖 defaults。
+实板使用以上命令，保持 RGB 数据顺序；Wokwi NeoPixel 使用 GRB，单独构建：
+
+```sh
+eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp
+```
+
+该脚本合并 `sdkconfig.defaults` 与 `sdkconfig.defaults.wokwi`，使用 `build-wokwi/sdkconfig`，
+启用 `CONFIG_BLINK_LED_ORDER_GRB`；实板 `build/` 及根目录 `sdkconfig` 保持独立。
+重新配置后确认灯珠 GPIO8、红/绿/蓝按钮 GPIO10/9/11；已有配置可能覆盖 defaults。
 在 VS Code 执行 **Wokwi: Start Simulator**；固件路径由 `wokwi.toml` 指定，使用
-`build/flasher_args.json` 和 `build/esp32_blink.elf`，无需另行合并固件。
+`build-wokwi/flasher_args.json` 和 `build-wokwi/esp32_blink.elf`，无需另行合并固件。
 
 Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
-GPIO8 → DIN、5V → VDD、GND → VSS；绿色按钮连接 GPIO9 与 GND。
-启动后点击绿色按钮或板上 BOOT，验证蓝灯从灭到亮再灭；长按只闪一次，松开再按可再次触发。
-验证时实际观察蓝灯亮灭，不能只检查启动日志；
-板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件，蓝光也不能验证
-RGB/GRB 的红绿通道顺序；实板烧录验证尚未进行。
+GPIO8 → DIN、5V → VDD、GND → VSS；三个按钮分别连接 GPIO10/9/11 与 GND。
+点击红、绿、蓝按钮，或聚焦仿真图后按 R/G/B，分别验证红、绿、蓝闪光；板上 BOOT 对应绿色。
+长按只闪一次，连续点击按入队顺序闪光。
+验证时实际观察三种颜色的亮灭，不能只检查启动日志；
+板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件；仿真使用 GRB 的独立固件，
+实板使用默认 RGB 固件。实板烧录验证尚未进行。
 
 硬件依据：[微雪引脚图](https://docs.waveshare.com/ESP32-C6-Zero)、
 [RGB 顺序说明](https://docs.waveshare.com/ESP32-C6-Zero/FAQ)。

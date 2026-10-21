@@ -1,0 +1,2 @@
+# 叠加在 sdkconfig.defaults 后，只供 Wokwi 独立构建使用。
+CONFIG_BLINK_LED_ORDER_GRB=y

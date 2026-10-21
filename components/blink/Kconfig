@@ -1,0 +1,8 @@
+menu "WS2812 组件配置"
+    config BLINK_LED_ORDER_GRB
+        bool "使用 GRB 数据顺序（Wokwi NeoPixel）"
+        default n
+        help
+            微雪 ESP32-C6-Zero 板载灯使用 RGB 顺序，保持关闭。
+            Wokwi NeoPixel 使用 GRB 顺序，仿真构建中启用，避免红绿颠倒。
+endmenu

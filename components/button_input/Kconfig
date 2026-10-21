@@ -1,6 +1,6 @@
 menu "按钮输入配置"
     config BUTTON_INPUT_GPIO
-        int "低电平按下的按钮 GPIO"
+        int "绿色按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 9
@@ -8,4 +8,21 @@ menu "按钮输入配置"
             微雪 ESP32-C6-Zero 的 BOOT 按钮连接 GPIO9，按下接地。
             驱动开启内部上拉并处理消抖。GPIO9 也是启动配置引脚，
             请在正常启动后按下，复位时保持松开。
+    config BUTTON_INPUT_RED_GPIO
+        int "红色按钮 GPIO（低电平按下）"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 10
+        help
+            红色按钮连接此 GPIO 与 GND，内部上拉并使用软件消抖。
+            引脚须与绿色按钮、蓝色按钮及灯珠数据引脚不同。
+
+    config BUTTON_INPUT_BLUE_GPIO
+        int "蓝色按钮 GPIO（低电平按下）"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 11
+        help
+            蓝色按钮连接此 GPIO 与 GND，内部上拉并使用软件消抖。
+            引脚须与红色按钮、绿色按钮及灯珠数据引脚不同。
 endmenu
