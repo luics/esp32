@@ -4,6 +4,36 @@ This file is a reusable baseline for coding agents working in ESP-IDF applicatio
 and component repositories. Follow more specific instructions in the target
 repository when they override this baseline.
 
+## 当前项目：微雪 ESP32-C6-Zero
+
+- 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
+- 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
+  蓝光亮、灭各 500 ms。实板无需外接 LED 或电阻。
+- 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
+  `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)。
+- 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
+
+构建命令（重新配置的确认规则见下文）：
+
+```sh
+eim run "idf.py reconfigure" stable-mcp
+eim run "idf.py build" stable-mcp
+```
+
+重新配置后确认生成的 `sdkconfig` 中 `CONFIG_BLINK_RGB_GPIO=8`；已有配置可能覆盖 defaults。
+在 VS Code 执行 **Wokwi: Start Simulator**；固件路径由 `wokwi.toml` 指定，使用
+`build/flasher_args.json` 和 `build/esp32_blink.elf`，无需另行合并固件。
+
+Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
+GPIO8 → DIN、5V → VDD、GND → VSS。验证时实际观察蓝灯亮灭，不能只检查启动日志；
+板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件，蓝光也不能验证
+RGB/GRB 的红绿通道顺序；实板烧录验证尚未进行。
+
+硬件依据：[微雪引脚图](https://docs.waveshare.com/ESP32-C6-Zero)、
+[RGB 顺序说明](https://docs.waveshare.com/ESP32-C6-Zero/FAQ)。
+驱动与仿真参考：[led_strip](https://components.espressif.com/components/espressif/led_strip/versions/3.1.0~1/readme)、
+[Wokwi 支持板型](https://docs.wokwi.com/guides/esp32)。
+
 ## Discover the Project First
 
 - Locate the ESP-IDF project root before running commands. A project root normally

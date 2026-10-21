@@ -4,5 +4,5 @@
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(blink_run(CONFIG_BLINK_GPIO));
+    ESP_ERROR_CHECK(blink_run(CONFIG_BLINK_RGB_GPIO));
 }

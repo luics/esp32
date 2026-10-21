@@ -1,17 +1,14 @@
 menu "闪灯示例配置"
 
-    config BLINK_GPIO
-        int "LED 连接的 GPIO 编号"
+    config BLINK_RGB_GPIO
+        int "WS2812 RGB LED 数据引脚"
 
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 2
+        default 8
         help
-            设置为连接板载 LED 或外接 LED 的 GPIO 编号。
-            默认 GPIO2 仅适用于引脚连接匹配的开发板；不同芯片和开发板
-            可用引脚不同，请先查阅对应的芯片及开发板文档。
-            经典 ESP32 的 GPIO2 是启动绑带引脚，外接电路可能影响启动。
-            ESP32-C6-DevKitC-1 默认使用 GPIO2 驱动外接普通 LED；
-            板载 GPIO8 为可寻址 RGB LED，不能通过普通 GPIO 闪灯代码控制。
+            微雪 ESP32-C6-Zero 板载单颗 WS2812 的 DIN 连接 GPIO8，
+            使用 RGB 数据顺序，由 RMT 外设驱动，无需外接 LED 或电阻。
+            更换开发板时请核对数据引脚和灯珠的颜色顺序。
 
 endmenu

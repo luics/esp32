@@ -4,12 +4,13 @@
   "editor": "wokwi",
   "parts": [
     { "type": "board-esp32-c6-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
-    { "type": "wokwi-led", "id": "led", "top": -40, "left": 200, "attrs": { "color": "red" } },
-    { "type": "wokwi-resistor", "id": "r1", "top": 50, "left": 180, "attrs": { "value": "330" } }
+    { "type": "wokwi-neopixel", "id": "rgb", "top": 100, "left": 230, "attrs": {} },
+    { "type": "wokwi-text", "id": "note", "top": -60, "left": -40,
+      "attrs": { "text": "C6-Zero LED equivalent: GPIO8 -> WS2812\nWatch the separate RGB LED on the right" } }
   ],
   "connections": [
-    ["esp:2", "r1:1", "green", []],
-    ["r1:2", "led:A", "green", []],
-    ["led:C", "esp:GND.1", "black", []]
+    ["esp:8", "rgb:DIN", "green", []],
+    ["esp:5V", "rgb:VDD", "red", []],
+    ["esp:GND.1", "rgb:VSS", "black", []]
   ]
 }
