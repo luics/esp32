@@ -94,6 +94,8 @@ static void show_state(display_handle_t screen, const telegraph_t *telegraph,
 
 void app_main(void)
 {
+    /* 声光边沿优先于显示任务（优先级 2），避免短按在刷新期间积压成瞬时脉冲。 */
+    vTaskPrioritySet(NULL, 3);
     const display_config_t screen_config = {
         .sclk_gpio = CONFIG_DISPLAY_SCLK_GPIO, .mosi_gpio = CONFIG_DISPLAY_MOSI_GPIO,
         .cs_gpio = CONFIG_DISPLAY_CS_GPIO, .dc_gpio = CONFIG_DISPLAY_DC_GPIO,
@@ -151,8 +153,11 @@ void app_main(void)
         }
         if (wait_red_release && gpio_get_level(CONFIG_BUTTON_INPUT_RED_GPIO)) wait_red_release = false;
         input_event_t event;
-        /* 先处理已采集边沿再结算静默，避免长按在三个单位临界处被拆分字符。 */
-        for (unsigned i = 0; i < 64 && xQueueReceive(events, &event, 0) == pdTRUE; ++i) {
+        /* 首个边沿直接唤醒输入任务；超时才检查静默与换档，不再固定延时轮询。
+         * 先处理已采集边沿再结算静默，避免长按在三个单位临界处被拆分字符。 */
+        const TickType_t wait = pdMS_TO_TICKS(5) ? pdMS_TO_TICKS(5) : 1;
+        for (unsigned i = 0; i < 64; ++i) {
+            if (xQueueReceive(events, &event, i == 0 ? wait : 0) != pdTRUE) break;
             if (event.kind == HISTORY_NEXT) {
                 ++page_requests;
             } else if (!wait_red_release) {
@@ -210,6 +215,5 @@ void app_main(void)
             dash_feedback = true;
         }
         if (changed) show_state(screen, &telegraph, selected, page, &frame);
-        vTaskDelay(pdMS_TO_TICKS(5) ? pdMS_TO_TICKS(5) : 1);
     }
 }

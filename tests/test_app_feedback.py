@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess
 import tempfile
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK = r'''
@@ -40,6 +41,7 @@ int xQueueSend(QueueHandle_t queue, const void *item, unsigned wait);
 int xQueueReceive(QueueHandle_t queue, void *item, unsigned wait);
 int xQueueReset(QueueHandle_t queue);
 void vTaskDelay(TickType_t ticks);
+void vTaskPrioritySet(TaskHandle_t task, unsigned priority);
 TaskHandle_t xTaskGetCurrentTaskHandle(void);
 void xTaskNotifyGive(TaskHandle_t task);
 unsigned ulTaskNotifyTake(int clear, unsigned wait);
@@ -66,7 +68,8 @@ static QueueHandle_t queue;
 static uint64_t clock_ms;
 static bool sound, light;
 static unsigned starts, stops;
-static uint64_t started_at, durations[3];
+static unsigned task_priority = 1;
+static uint64_t started_at, durations[13];
 static display_frame_t last_frame;
 static button_input_edge_callback_t red_edge;
 static button_input_callback_t green_press;
@@ -81,12 +84,14 @@ int xQueueSend(QueueHandle_t q,const void *item,unsigned wait) {
     memcpy(q->items[(q->head+q->count)%64],item,q->size); ++q->count; return pdTRUE;
 }
 int xQueueReceive(QueueHandle_t q,void *item,unsigned wait) {
-    (void)wait; if(!q->count)return 0;
+    if(!q->count && wait)vTaskDelay(wait);
+    if(!q->count)return 0;
     memcpy(item,q->items[q->head],q->size);q->head=(q->head+1)%64;--q->count;return pdTRUE;
 }
 int xQueueReset(QueueHandle_t q){q->head=q->count=0;return pdTRUE;}
 TaskHandle_t xTaskGetCurrentTaskHandle(void){return (void*)1;}
 void xTaskNotifyGive(TaskHandle_t task){(void)task;}
+void vTaskPrioritySet(TaskHandle_t task,unsigned priority){(void)task;task_priority=priority;}
 unsigned ulTaskNotifyTake(int clear,unsigned wait){(void)clear;(void)wait;return 0;}
 int gpio_get_level(int gpio){(void)gpio;return 1;}
 int64_t esp_timer_get_time(void){return (int64_t)clock_ms*1000;}
@@ -97,7 +102,7 @@ esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handl
 esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
 esp_err_t beep_init(int gpio,uint32_t hz){assert(gpio==3 && hz==2000);return ESP_OK;}
 esp_err_t beep_set_active(bool active){
-    if(active){assert(!sound && starts<3);started_at=clock_ms;++starts;}
+    if(active){assert(!sound && starts<13);started_at=clock_ms;++starts;}
     else if(sound){durations[stops++]=clock_ms-started_at;}
     sound=active;return ESP_OK;
 }
@@ -115,28 +120,40 @@ esp_err_t button_input_create(int gpio,button_input_callback_t callback,void *ct
 void vTaskDelay(TickType_t ticks){
     /* 检查真实主循环在本轮处理边沿后的输出；不模拟或复述输入处理分支。 */
     if(clock_ms==20 || clock_ms==100 || clock_ms==350)assert(sound && light);
-    if(clock_ms==50 || clock_ms==300 || clock_ms>=850)assert(!sound && !light);
+    if(clock_ms==50 || clock_ms==300 || (clock_ms>=850 && clock_ms<1040) || clock_ms>=1440)assert(!sound && !light);
     if(clock_ms==70){assert(starts==1 && stops==1);assert(!strcmp(last_frame.current_code,"."));}
     if(clock_ms==400 || clock_ms==450){
         assert(sound && light && starts==3 && stops==2);
         assert(!strcmp(last_frame.current_code,"..") && last_frame.character_unit_ms==100);
     }
     if(clock_ms==900){assert(starts==3 && stops==3);assert(!strcmp(last_frame.current_code,"..-"));}
-    if(clock_ms>=1000){
-        assert(starts==3 && stops==3 && durations[0]==30 && durations[1]==200 && durations[2]==500);
+    if(clock_ms>=1500){
+        assert(starts==13 && stops==13 && durations[0]==30 && durations[1]==200 && durations[2]==500);
+        for(unsigned i=3;i<13;++i)assert(durations[i]==20);
+        assert(!strcmp(last_frame.current_code,"INVALID"));
         longjmp(done,1);
     }
-    clock_ms+=ticks;
+    /* 显示任务优先级为 2：持续就绪时，低优先级输入任务会错过完整短按。
+     * 逐个注入驱动边沿，保留原始时刻，覆盖队列中按下/松开挤在一起的情形。 */
+    const uint64_t until = clock_ms + ticks +
+        (getenv("TEST_RENDER_LOAD") && task_priority <= 2 ? 80 : 0);
+    while(clock_ms < until){
+    ++clock_ms;
+    if(clock_ms>=1040 && clock_ms<=1420){
+        if((clock_ms-1040)%40==0)red_edge(true,red_context);
+        if((clock_ms-1040)%40==20)red_edge(false,red_context);
+    }
     switch(clock_ms){
         case 20:case 100:case 350:red_edge(true,red_context);break;
         case 50:case 300:case 850:red_edge(false,red_context);break;
         case 70:case 400:case 450:case 900:green_press(green_context);break;
     }
+    }
 }
 int main(void){
     if(!setjmp(done))app_main();
     free(queue);
-    puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, no replay, 2kHz, green isolated, speed locked");
+    puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
@@ -158,3 +175,4 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
                 str(ROOT / "main/telegraph.c"), "-o", str(work / "test")]
     subprocess.run(command, check=True)
     subprocess.run([str(work / "test")], check=True)
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_RENDER_LOAD": "1"})
