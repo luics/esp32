@@ -4,65 +4,26 @@ This file is a reusable baseline for coding agents working in ESP-IDF applicatio
 and component repositories. Follow more specific instructions in the target
 repository when they override this baseline.
 
-## 当前项目：微雪 ESP32-C6-Zero
+## 当前项目：摩斯码电报机（微雪 ESP32-C6-Zero）
 
-- 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
-- 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
-  上电灭灯，红（GPIO10）、绿（GPIO9/BOOT）、蓝（GPIO11）按钮分别触发对应颜色，
-  最新按钮优先：立即切换颜色并重新计时 200 ms，到期无新按下则灭灯，无强制灭灯等待。
-  单槽队列覆盖未处理的旧颜色；同色再次按下延长亮灯，按钮低电平有效、长按不重复。
-  实板新增红、蓝按钮分别连接 GPIO10/GPIO11 与 GND；复位时松开 BOOT。
-- 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
-  `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；
-  绿色按钮保留 `CONFIG_BUTTON_INPUT_GPIO`，红、蓝分别使用 `CONFIG_BUTTON_INPUT_RED_GPIO`、
-  `CONFIG_BUTTON_INPUT_BLUE_GPIO`；接口见 [button_input 说明](components/button_input/README.md)。
-- 报警器组件 [beep](components/beep/README.md) 使用 GPIO3 外接无源压电蜂鸣器；
-  任意颜色按钮按下即触发 2 kHz、100 ms 短鸣，后台任务独立处理，连续触发重新计时。
-  默认值为 `CONFIG_BEEP_GPIO`、`CONFIG_BEEP_FREQUENCY_HZ`、`CONFIG_BEEP_DURATION_MS`；
-  独占 LEDC 低速 timer 0/channel 0，支持 0～100% 运行时音量，实板须外接适配 GPIO
-  驱动的低电流蜂鸣器。音量控制组件 [volume_control](components/volume_control/README.md)
-  使用 GPIO4/ADC1 通道4 读取单联 0～10 kΩ 电位器；两端接 3V3/GND，滑臂接 GPIO4，
-  `CONFIG_VOLUME_CONTROL_ADC_GPIO` 默认 4，`CONFIG_VOLUME_CONTROL_SAMPLE_INTERVAL_MS`
-  默认 50 ms；音量在 0～100% 映射并即时更新。
-- 显示组件 [display](components/display/README.md) 驱动 ILI9341 240×320 彩色 LCD；
-  点击按钮后更新对应颜色背景，并居中显示“红色/绿色/蓝色”，画面保留到下次事件。
-  SPI2 独占，SCK/MOSI/CS/DC/RST 默认 GPIO6/7/18/19/20；后台分条带刷新，只保留最新颜色。
-  Wokwi 不提供 RST/背光引脚，RST=20 只需在实板接线。
-- 控制台保留 UART 输出和 USB Serial/JTAG 辅助输出，分别用于 Wokwi 与实板原生 USB 日志。
-
-构建命令（重新配置的确认规则见下文）：
-
-```sh
-eim run "idf.py reconfigure" stable-mcp
-eim run "idf.py build" stable-mcp
-```
-
-实板使用以上命令，保持 RGB 数据顺序；Wokwi NeoPixel 使用 GRB，单独构建：
-
-```sh
-eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp
-```
-
-该脚本合并 `sdkconfig.defaults` 与 `sdkconfig.defaults.wokwi`，使用 `build-wokwi/sdkconfig`，
-启用 `CONFIG_BLINK_LED_ORDER_GRB`；实板 `build/` 及根目录 `sdkconfig` 保持独立。
-重新配置后确认灯珠 GPIO8、红/绿/蓝按钮 GPIO10/9/11；已有配置可能覆盖 defaults。
-在 VS Code 执行 **Wokwi: Start Simulator**；固件路径由 `wokwi.toml` 指定，使用
-`build-wokwi/flasher_args.json` 和 `build-wokwi/esp32_blink.elf`，无需另行合并固件。
-
-Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
-GPIO8 → DIN、5V → VDD、GND → VSS；三个按钮分别连接 GPIO10/9/11 与 GND。
-蜂鸣器正极（2）接 GPIO3，负极（1）接 GND；验证每个按钮触发短鸣，长按不重复。
-Wokwi 电位器两端接 3V3/GND、SIG 接 GPIO4；转动旋钮验证短鸣音量随位置变化。
-点击红、绿、蓝按钮，或聚焦仿真图后按 R/G/B，分别验证红、绿、蓝闪光；板上 BOOT 对应绿色。
-长按只触发一次；快速按不同颜色时，验证立即切色并从最新事件重新计时，旧事件不补播。
-验证时实际观察三种颜色的亮灭，以及屏幕对应背景色、居中文字与快速切换，不能只检查启动日志；
-板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件；仿真使用 GRB 的独立固件，
-实板使用默认 RGB 固件。实板烧录验证尚未进行。
-
-硬件依据：[微雪引脚图](https://docs.waveshare.com/ESP32-C6-Zero)、
-[RGB 顺序说明](https://docs.waveshare.com/ESP32-C6-Zero/FAQ)。
-驱动与仿真参考：[led_strip](https://components.espressif.com/components/espressif/led_strip/versions/3.1.0~1/readme)、
-[Wokwi 支持板型](https://docs.wokwi.com/guides/esp32)。
+- 环境：ESP-IDF v6.1，EIM 环境 `stable-mcp`，target `esp32c6`，Flash 8 MB。
+- 红 GPIO10 发送点（1 单位红光及声音），绿 GPIO9/BOOT 发送划（3 单位绿光及声音）；
+  蓝按钮移除，复位时松开 BOOT。按钮长按不重复，FIFO 排队保留点击，最少静默 1 单位。
+- GPIO4 电位器由 `interval_control` 组件读取，从低到高选择 200（默认）/150/100/60 ms。
+  新档位从下一个字符生效；静默从声光结束起算，3 单位确认字符、7 单位确认词。
+- WS2812 GPIO8：实板 RGB，Wokwi 独立固件 GRB。蜂鸣器 GPIO3、2 kHz，LEDC timer0/channel0。
+- ILI9341 白底黑字，上部当前点划/候选解码，下部历史；确认的词成组，未成词按字符分组。
+  全部历史存 RAM，断电清空，底部每 4 秒自动轮播，输入中的字符不进历史。
+  SPI2 独占，SCK/MOSI/CS/DC/RST = GPIO6/7/18/19/20，Wokwi 不接 RST。
+- 配置默认值见 `sdkconfig.defaults`，接口见各组件 README，详细操作与验证见 [README.md](README.md)。
+  `volume_control`、蓝按钮 GPIO 配置和蜂鸣器固定时长配置已移除。
+- 构建（修改配置后的重新配置授权规则见下文）：
+  `eim run "idf.py reconfigure build" stable-mcp`；仿真：
+  `eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp`。
+  实板 `build/`/根 sdkconfig 与仿真 `build-wokwi/` 独立。保留 UART/USB Serial-JTAG 日志。
+- Wokwi 标题为“摩斯码电报机”，功能标签使用“功能 · port”；R/G 为点/划快捷键。
+  验证须观察红/绿灯、声音与屏幕输入、解码、分组、历史轮播，不能仅检查启动日志。
+  替代模型不复现完整 Zero 硬件；实板烧录仍需用户授权。
 
 ## Discover the Project First
 

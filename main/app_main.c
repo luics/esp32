@@ -1,124 +1,149 @@
+#include <stdio.h>
+#include <string.h>
 #include "blink.h"
 #include "beep.h"
 #include "display.h"
 #include "button_input.h"
-#include "volume_control.h"
+#include "interval_control.h"
+#include "morse.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 
-static const char *TAG = "app";
-
+static const char *TAG = "telegraph";
 typedef struct {
     int gpio;
-    blink_color_t color;
-    const char *name;
-    display_color_t screen_color;
-    display_handle_t screen;
+    char symbol;
     QueueHandle_t events;
     button_input_handle_t handle;
-} color_button_t;
+} morse_button_t;
+
+static uint64_t now_ms(void) { return (uint64_t)esp_timer_get_time() / 1000; }
 
 static void on_button_press(void *context)
 {
-    const color_button_t *button = context;
-    /* 声音独立触发，不等待短鸣结束。 */
-    const esp_err_t ret = beep_trigger();
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to trigger beep: %s", esp_err_to_name(ret));
+    const morse_button_t *button = context;
+    /* FIFO 保留每次点击；回调不等待声音或屏幕，长按由按钮驱动抑制。 */
+    if (xQueueSend(button->events, &button->symbol, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "Input queue full: rejected %c", button->symbol);
     }
-    /* 屏幕和闪灯分别提交最新颜色，SPI 刷新不会阻塞按钮回调。 */
-    const esp_err_t display_ret = display_show_color(button->screen, button->screen_color);
-    if (display_ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to update display: %s", esp_err_to_name(display_ret));
-    }
-    /* 单槽队列覆盖尚未处理的旧颜色，唤醒主任务立即响应最新按下。 */
-    xQueueOverwrite(button->events, &button->color);
+}
+
+static void show_state(display_handle_t screen, const morse_t *morse,
+                       uint32_t selected, size_t page, display_frame_t *frame)
+{
+    memset(frame, 0, sizeof(*frame));
+    frame->selected_unit_ms = selected;
+    frame->character_unit_ms = morse->current[0] ? morse->unit_ms : selected;
+    strcpy(frame->current_code, morse->invalid ? "INVALID" : morse->current);
+    frame->decoded = morse->current[0] ? (morse->invalid ? '?' : morse_decode(morse->current)) : ' ';
+    frame->characters = morse->count;
+    frame->pages = morse_history_lines(morse, page, frame->history);
+    frame->page = page + 1;
+    ESP_ERROR_CHECK(display_show_frame(screen, frame));
 }
 
 void app_main(void)
 {
-    color_button_t buttons[] = {
-        {.gpio = CONFIG_BUTTON_INPUT_RED_GPIO, .color = BLINK_COLOR_RED, .name = "red", .screen_color = DISPLAY_COLOR_RED},
-        {.gpio = CONFIG_BUTTON_INPUT_GPIO, .color = BLINK_COLOR_GREEN, .name = "green", .screen_color = DISPLAY_COLOR_GREEN},
-        {.gpio = CONFIG_BUTTON_INPUT_BLUE_GPIO, .color = BLINK_COLOR_BLUE, .name = "blue", .screen_color = DISPLAY_COLOR_BLUE},
+    morse_button_t buttons[] = {
+        {.gpio = CONFIG_BUTTON_INPUT_RED_GPIO, .symbol = '.'},
+        {.gpio = CONFIG_BUTTON_INPUT_GPIO, .symbol = '-'},
     };
-    const size_t button_count = sizeof(buttons) / sizeof(buttons[0]);
-    /* 初始化前检查所有引脚，避免按钮、灯珠及蜂鸣器互相覆盖 GPIO。 */
-    ESP_ERROR_CHECK(CONFIG_BEEP_GPIO == CONFIG_BLINK_RGB_GPIO
-                    ? ESP_ERR_INVALID_ARG : ESP_OK);
-    ESP_ERROR_CHECK(CONFIG_VOLUME_CONTROL_ADC_GPIO == CONFIG_BEEP_GPIO
-                    || CONFIG_VOLUME_CONTROL_ADC_GPIO == CONFIG_BLINK_RGB_GPIO
-                    ? ESP_ERR_INVALID_ARG : ESP_OK);
-    for (size_t i = 0; i < button_count; ++i) {
-        ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BEEP_GPIO
-                        ? ESP_ERR_INVALID_ARG : ESP_OK);
-        ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_VOLUME_CONTROL_ADC_GPIO
-                        ? ESP_ERR_INVALID_ARG : ESP_OK);
-        ESP_ERROR_CHECK(buttons[i].gpio == CONFIG_BLINK_RGB_GPIO
-                        ? ESP_ERR_INVALID_ARG : ESP_OK);
-        for (size_t j = 0; j < i; ++j) {
-            ESP_ERROR_CHECK(buttons[i].gpio == buttons[j].gpio
-                            ? ESP_ERR_INVALID_ARG : ESP_OK);
-        }
-    }
-
     const display_config_t screen_config = {
         .sclk_gpio = CONFIG_DISPLAY_SCLK_GPIO, .mosi_gpio = CONFIG_DISPLAY_MOSI_GPIO,
         .cs_gpio = CONFIG_DISPLAY_CS_GPIO, .dc_gpio = CONFIG_DISPLAY_DC_GPIO,
         .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
     };
-    const int screen_pins[] = {screen_config.sclk_gpio, screen_config.mosi_gpio,
-                               screen_config.cs_gpio, screen_config.dc_gpio, screen_config.reset_gpio};
-    /* 显示接口新增五条线，先验证与所有已有外设没有 GPIO 冲突。 */
-    for (size_t i = 0; i < sizeof(screen_pins) / sizeof(screen_pins[0]); ++i) {
-        ESP_ERROR_CHECK(screen_pins[i] == CONFIG_BEEP_GPIO
-                        || screen_pins[i] == CONFIG_VOLUME_CONTROL_ADC_GPIO
-                        || screen_pins[i] == CONFIG_BLINK_RGB_GPIO
-                        ? ESP_ERR_INVALID_ARG : ESP_OK);
-        for (size_t j = 0; j < button_count; ++j) {
-            ESP_ERROR_CHECK(screen_pins[i] == buttons[j].gpio ? ESP_ERR_INVALID_ARG : ESP_OK);
-        }
+    /* 上电前统一检查引脚，避免任何外设初始化覆盖其他设备。 */
+    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BEEP_GPIO, CONFIG_INTERVAL_CONTROL_ADC_GPIO,
+                        buttons[0].gpio, buttons[1].gpio, screen_config.sclk_gpio,
+                        screen_config.mosi_gpio, screen_config.cs_gpio, screen_config.dc_gpio,
+                        screen_config.reset_gpio};
+    for (size_t i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i) {
+        for (size_t j = 0; j < i; ++j) ESP_ERROR_CHECK(pins[i] == pins[j] ? ESP_ERR_INVALID_ARG : ESP_OK);
     }
     display_handle_t screen = NULL;
-    ESP_ERROR_CHECK(display_init(&screen_config, &screen));
-
-    /* 上电灭灯，单槽队列只保留最新颜色，避免快速点击积压。 */
     blink_handle_t led = NULL;
+    ESP_ERROR_CHECK(display_init(&screen_config, &screen));
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
-    QueueHandle_t events = xQueueCreate(1, sizeof(blink_color_t));
+    ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ));
+    ESP_ERROR_CHECK(interval_control_start(CONFIG_INTERVAL_CONTROL_ADC_GPIO,
+                                           CONFIG_INTERVAL_CONTROL_SAMPLE_INTERVAL_MS));
+    QueueHandle_t events = xQueueCreate(32, sizeof(char));
     ESP_ERROR_CHECK(events ? ESP_OK : ESP_ERR_NO_MEM);
-
-    /* 先让蜂鸣器准备就绪，再启用按钮回调，确保首次按下也能发声。 */
-    ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ,
-                              CONFIG_BEEP_DURATION_MS));
-    /* 启动电位器 ADC 采样，使旋钮位置控制蜂鸣器鸣叫强度。 */
-    ESP_ERROR_CHECK(volume_control_start(CONFIG_VOLUME_CONTROL_ADC_GPIO,
-                                         CONFIG_VOLUME_CONTROL_SAMPLE_INTERVAL_MS));
-
-    /* 三个按钮共用回调，各自上下文保存颜色；主任务不返回，保证上下文有效。 */
-    for (size_t i = 0; i < button_count; ++i) {
-        buttons[i].screen = screen;
+    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
         buttons[i].events = events;
         ESP_ERROR_CHECK(button_input_create(buttons[i].gpio, on_button_press,
                                             &buttons[i], &buttons[i].handle));
-        ESP_LOGI(TAG, "Ready: %s button GPIO %d", buttons[i].name, buttons[i].gpio);
     }
-    /* 灭灯时无限等待；亮灯时等待新颜色或 200 ms 到期，不再使用阻塞闪光接口。 */
-    TickType_t wait_ticks = portMAX_DELAY;
+
+    morse_t morse = {0};
+    display_frame_t frame;
+    size_t page = 0;
+    uint64_t flip_at = now_ms() + 4000;
+    uint32_t selected = interval_control_get_unit_ms();
+    show_state(screen, &morse, selected, page, &frame);
+    ESP_LOGI(TAG, "Ready: red=dot, green=dash; 3 units=letter, 7 units=word");
     while (true) {
-        blink_color_t color;
-        if (xQueueReceive(events, &color, wait_ticks) == pdTRUE) {
-            /* 新事件立即切色；同色重复按下也会从这次显示起重新计时。 */
-            ESP_ERROR_CHECK(blink_set_color(led, color));
-            wait_ticks = pdMS_TO_TICKS(200);
-            ESP_LOGI(TAG, "Button pressed: show %s for 200 ms", buttons[color].name);
-        } else {
-            /* 期间没有新事件才灭灯；灭灯后仍可立即响应下一次按下。 */
-            ESP_ERROR_CHECK(blink_off(led));
-            wait_ticks = portMAX_DELAY;
+        const size_t before = morse.count;
+        const bool word_before = morse.word_done;
+        ESP_ERROR_CHECK(morse_advance(&morse, now_ms()) ? ESP_OK : ESP_ERR_NO_MEM);
+        bool changed = before != morse.count || word_before != morse.word_done;
+        if (before != morse.count) {
+            const morse_entry_t *entry = &morse.history[morse.count - 1];
+            ESP_LOGI(TAG, "History %u: %s = %c", (unsigned)morse.count, entry->code, entry->decoded);
         }
+        if (changed) {
+            /* 新历史先定位到最新页；随后自动循环浏览全部历史。 */
+            page = morse_history_lines(&morse, 0, frame.history) - 1;
+            flip_at = now_ms() + 4000;
+        }
+        const uint32_t next_selected = interval_control_get_unit_ms();
+        changed |= selected != next_selected;
+        selected = next_selected;
+        if (now_ms() >= flip_at) {
+            page = (page + 1) % frame.pages;
+            flip_at = now_ms() + 4000;
+            changed = true;
+        }
+        if (changed) show_state(screen, &morse, selected, page, &frame);
+
+        char symbol;
+        if (xQueueReceive(events, &symbol, pdMS_TO_TICKS(10) ? pdMS_TO_TICKS(10) : 1) != pdTRUE) continue;
+        /* 最少留一个单位静默，快速点击排队发送，不覆盖或截断上一个信号。 */
+        while (morse.has_signal && now_ms() < morse.ended_ms + morse.unit_ms) vTaskDelay(1);
+        /* 收到按键时再次结算边界，避免在三/七单位临界处把字符错误合并。 */
+        const size_t old_count = morse.count;
+        const bool old_word = morse.word_done;
+        ESP_ERROR_CHECK(morse_advance(&morse, now_ms()) ? ESP_OK : ESP_ERR_NO_MEM);
+        if (old_count != morse.count || old_word != morse.word_done) {
+            page = morse_history_lines(&morse, 0, frame.history) - 1;
+            flip_at = now_ms() + 4000;
+            if (old_count != morse.count) {
+                const morse_entry_t *entry = &morse.history[morse.count - 1];
+                ESP_LOGI(TAG, "History %u: %s = %c", (unsigned)morse.count, entry->code, entry->decoded);
+            }
+        }
+        morse_begin(&morse, symbol, interval_control_get_unit_ms());
+        show_state(screen, &morse, selected, page, &frame);
+        const uint32_t duration = morse.unit_ms * (symbol == '.' ? 1 : 3);
+        ESP_ERROR_CHECK(blink_set_color(led, symbol == '.' ? BLINK_COLOR_RED : BLINK_COLOR_GREEN));
+        const esp_err_t sound_ret = beep_set_active(true);
+        if (sound_ret != ESP_OK) {
+            ESP_ERROR_CHECK(blink_off(led));
+            ESP_ERROR_CHECK(sound_ret);
+        }
+        /* 定长播放：按住按钮不延长，旋钮变化也不改动当前字符的时序。 */
+        const uint64_t end = now_ms() + duration;
+        while (now_ms() < end) vTaskDelay(1);
+        const esp_err_t stop_ret = beep_set_active(false);
+        ESP_ERROR_CHECK(blink_off(led));
+        ESP_ERROR_CHECK(stop_ret);
+        morse_end(&morse, now_ms());
+        ESP_LOGI(TAG, "Sent %c, %lu ms", symbol, (unsigned long)duration);
     }
 }

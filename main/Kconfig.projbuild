@@ -1,4 +1,4 @@
-menu "闪灯示例配置"
+menu "摩斯码电报机配置"
 
     config BLINK_RGB_GPIO
         int "WS2812 RGB LED 数据引脚"

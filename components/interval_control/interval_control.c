@@ -1,18 +1,42 @@
 #include <stdbool.h>
-#include "volume_control.h"
-#include "beep.h"
+#include "interval_control.h"
+#include <stdatomic.h>
 #include "esp_adc/adc_oneshot.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char *TAG = "volume_control";
+static const char *TAG = "interval_control";
 static adc_oneshot_unit_handle_t adc_handle;
 static adc_channel_t adc_channel;
 static TaskHandle_t sample_task;
 static TickType_t sample_interval;
-static uint8_t last_volume = UINT8_MAX;
+static atomic_uint current_unit_ms = 200;
+static int current_band;
+static const uint32_t units[] = {200, 150, 100, 60};
+
+uint32_t interval_control_get_unit_ms(void)
+{
+    return atomic_load(&current_unit_ms);
+}
+
+static void update_interval(int raw, bool initial)
+{
+    int band = current_band;
+    if (initial) {
+        band = raw / 1024;
+    } else {
+        /* 阈值两侧各留 80 ADC 计数，抑制旋钮临界位置的档位抖动。 */
+        while (band < 3 && raw >= (band + 1) * 1024 + 80) ++band;
+        while (band > 0 && raw < band * 1024 - 80) --band;
+    }
+    if (initial || band != current_band) {
+        current_band = band;
+        atomic_store(&current_unit_ms, units[band]);
+        ESP_LOGI(TAG, "Interval: %lu ms (ADC %d)", (unsigned long)units[band], raw);
+    }
+}
 
 static void potentiometer_task(void *context)
 {
@@ -23,25 +47,13 @@ static void potentiometer_task(void *context)
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "ADC read failed: %s", esp_err_to_name(ret));
         } else {
-            /* 12 位 ADC 结果线性映射到 0~100%，避免细小抖动反复更新 PWM。 */
-            const uint8_t volume = (uint8_t)((raw * 100 + 2047) / 4095);
-            const int difference = (int)volume - (int)last_volume;
-            const bool endpoint_changed = (volume == 0 || volume == 100) && volume != last_volume;
-            if (last_volume == UINT8_MAX || difference >= 2 || difference <= -2 || endpoint_changed) {
-                const esp_err_t set_ret = beep_set_volume(volume);
-                if (set_ret != ESP_OK) {
-                    ESP_LOGW(TAG, "Failed to update beep volume: %s", esp_err_to_name(set_ret));
-                } else {
-                    last_volume = volume;
-                    ESP_LOGI(TAG, "Volume: %u%% (ADC %d)", volume, raw);
-                }
-            }
+            update_interval(raw, false);
         }
         vTaskDelay(sample_interval);
     }
 }
 
-esp_err_t volume_control_start(int gpio_number, uint32_t sample_interval_ms)
+esp_err_t interval_control_start(int gpio_number, uint32_t sample_interval_ms)
 {
     ESP_RETURN_ON_FALSE(!sample_task, ESP_ERR_INVALID_STATE, TAG, "Already started");
     ESP_RETURN_ON_FALSE(sample_interval_ms >= 10 && sample_interval_ms <= 1000,
@@ -72,7 +84,7 @@ esp_err_t volume_control_start(int gpio_number, uint32_t sample_interval_ms)
     if (sample_interval == 0) {
         sample_interval = 1;
     }
-    /* 音量先同步为当前旋钮位置，再启动轮询，确保首次按钮鸣叫使用正确音量。 */
+    /* 启动时读取实际档位；Wokwi 旋钮默认在最低端，对应 200 ms。 */
     int raw = 0;
     ret = adc_oneshot_read(adc_handle, adc_channel, &raw);
     if (ret != ESP_OK) {
@@ -80,15 +92,9 @@ esp_err_t volume_control_start(int gpio_number, uint32_t sample_interval_ms)
         adc_handle = NULL;
         return ret;
     }
-    last_volume = (uint8_t)((raw * 100 + 2047) / 4095);
-    ret = beep_set_volume(last_volume);
-    if (ret != ESP_OK) {
-        adc_oneshot_del_unit(adc_handle);
-        adc_handle = NULL;
-        return ret;
-    }
+    update_interval(raw, true);
 
-    if (xTaskCreate(potentiometer_task, "beep_volume", 3072, NULL, 4, &sample_task) != pdPASS) {
+    if (xTaskCreate(potentiometer_task, "interval_adc", 3072, NULL, 4, &sample_task) != pdPASS) {
         adc_oneshot_del_unit(adc_handle);
         adc_handle = NULL;
         sample_task = NULL;

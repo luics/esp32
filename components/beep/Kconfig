@@ -9,17 +9,10 @@ menu "蜂鸣器配置"
             此引脚须与灯珠、按钮及其他外设引脚不同。
 
     config BEEP_FREQUENCY_HZ
-        int "短鸣频率（Hz）"
+        int "摩斯码音调频率（Hz）"
         range 100 10000
         default 2000
         help
             LEDC 输出方波驱动无源蜂鸣器，默认使用 2 kHz 提示音。
 
-    config BEEP_DURATION_MS
-        int "短鸣时长（毫秒）"
-        range 1 60000
-        default 100
-        help
-            任意颜色按钮按下后短鸣的时长，精度为一个 FreeRTOS 系统节拍。
-            鸣叫期间再次按下会重新计时，长按不重复触发。
 endmenu

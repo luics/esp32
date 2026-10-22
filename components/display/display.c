@@ -1,5 +1,6 @@
 #include "display.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -18,22 +19,13 @@
 #define WIDTH 240
 #define HEIGHT 320
 #define STRIPE_HEIGHT 16
-#define GLYPH_SIZE 32
-#define TEXT_GAP 8
-#define CHINESE_WIDTH (GLYPH_SIZE * 2 + TEXT_GAP)
-#define ENGLISH_GLYPH_WIDTH 12
-#define ENGLISH_GLYPH_HEIGHT 20
-#define ENGLISH_GLYPH_GAP 2
-#define ENGLISH_LINE_GAP 6
-#define TEXT_HEIGHT (GLYPH_SIZE + ENGLISH_LINE_GAP + ENGLISH_GLYPH_HEIGHT)
-
 static const char *TAG = "display";
 static bool initialized;
 
 struct display {
     esp_lcd_panel_handle_t panel;
     esp_lcd_panel_io_handle_t io;
-    QueueHandle_t colors;
+    QueueHandle_t frames;
     SemaphoreHandle_t transfer_done;
     uint16_t *stripe;
 };
@@ -56,72 +48,60 @@ static uint16_t wire_color(uint16_t rgb565)
     return (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
 }
 
-static void render_stripe(struct display *display, int top, int color)
+static void draw_text(struct display *display, int stripe_top, int left, int text_top,
+                       const char *text, int scale)
 {
-    const uint16_t backgrounds[] = {0xf800, 0x07e0, 0x001f};
-    static const char *const english_labels[] = {"RED", "GREEN", "BLUE"};
-    static const char english_glyphs[] = "BDEGLNRU";
-    const uint16_t background = color < 0 ? 0 : backgrounds[color];
-    const uint16_t foreground = color == DISPLAY_COLOR_GREEN ? 0 : 0xffff;
-    const int chinese_left = (WIDTH - CHINESE_WIDTH) / 2;
-    const int text_top = (HEIGHT - TEXT_HEIGHT) / 2;
-    const int english_top = text_top + GLYPH_SIZE + ENGLISH_LINE_GAP;
-    const char *english = color >= 0 ? english_labels[color] : "";
-    const int english_length = (int)strlen(english);
-    const int english_width = english_length * (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP)
-                              - ENGLISH_GLYPH_GAP;
-    const int english_left = (WIDTH - english_width) / 2;
-    /* 中文与英文上下排列为一个整体居中；英文只嵌入本项目用到的字母。 */
-    for (int y = 0; y < STRIPE_HEIGHT; ++y) {
-        const int glyph_y = top + y - text_top;
-        for (int x = 0; x < WIDTH; ++x) {
-            uint16_t pixel = background;
-            const int chinese_x = x - chinese_left;
-            if (color >= 0 && glyph_y >= 0 && glyph_y < GLYPH_SIZE && chinese_x >= 0) {
-                int glyph = -1;
-                int glyph_x = chinese_x;
-                if (chinese_x < GLYPH_SIZE) {
-                    glyph = color;
-                } else if (chinese_x >= GLYPH_SIZE + TEXT_GAP && chinese_x < CHINESE_WIDTH) {
-                    glyph = 3; /* 第二个字固定为“色”。 */
-                    glyph_x -= GLYPH_SIZE + TEXT_GAP;
-                }
-                if (glyph >= 0 && (color_font[glyph][glyph_y] & (UINT32_C(1) << (31 - glyph_x)))) {
-                    pixel = foreground;
+    /* 只绘制与当前 DMA 条带相交的文字；黑字覆盖白底。 */
+    for (size_t i = 0; text[i]; ++i) {
+        unsigned char character = (unsigned char)text[i];
+        if (character < 32 || character > 126) character = '?';
+        const int origin_x = left + (int)i * 6 * scale;
+        for (int y = 0; y < 9 * scale; ++y) {
+            const int row = text_top + y - stripe_top;
+            if (row < 0 || row >= STRIPE_HEIGHT) continue;
+            for (int x = 0; x < 5 * scale; ++x) {
+                const int column = origin_x + x;
+                if (column < 0 || column >= WIDTH) continue;
+                if (telegraph_font[character - 32][y / scale] & (1U << (4 - x / scale))) {
+                    display->stripe[row * WIDTH + column] = 0;
                 }
             }
-            const int english_y = top + y - english_top;
-            const int english_x = x - english_left;
-            if (color >= 0 && english_y >= 0 && english_y < ENGLISH_GLYPH_HEIGHT
-                && english_x >= 0 && english_x < english_width) {
-                const int char_index = english_x / (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP);
-                const int glyph_x = english_x % (ENGLISH_GLYPH_WIDTH + ENGLISH_GLYPH_GAP);
-                if (glyph_x < ENGLISH_GLYPH_WIDTH) {
-                    const char *glyph = strchr(english_glyphs, english[char_index]);
-                    const int glyph_index = (int)(glyph - english_glyphs);
-                    if (english_font[glyph_index][english_y] & (UINT16_C(1) << (11 - glyph_x))) {
-                        pixel = foreground;
-                    }
-                }
-            }
-            display->stripe[y * WIDTH + x] = wire_color(pixel);
         }
     }
 }
 
-static esp_err_t draw_frame(struct display *display, int color)
+static void centered(struct display *display, int top, int y, const char *text, int scale)
+{
+    draw_text(display, top, (WIDTH - (int)strlen(text) * 6 * scale + scale) / 2, y, text, scale);
+}
+
+static void render_stripe(struct display *display, int top, const display_frame_t *frame)
+{
+    for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = wire_color(0xffff);
+    char label[48];
+    centered(display, top, 8, "MORSE TELEGRAPH", 2);
+    snprintf(label, sizeof(label), "INTERVAL %lu ms / INPUT %lu ms",
+             (unsigned long)frame->selected_unit_ms, (unsigned long)frame->character_unit_ms);
+    centered(display, top, 33, label, 1);
+    centered(display, top, 57, frame->current_code, 3);
+    const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
+    centered(display, top, 95, decoded, 5);
+    snprintf(label, sizeof(label), "HISTORY %u/%u  CHARACTERS %u", frame->page ? frame->page : 1,
+             frame->pages ? frame->pages : 1, frame->characters);
+    draw_text(display, top, 9, 169, label, 1);
+    /* 历史区域固定在底部，只包含已确认字符；页码随四秒轮播更新。 */
+    for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 188 + row * 13, frame->history[row], 1);
+}
+
+static esp_err_t draw_frame(struct display *display, const display_frame_t *frame)
 {
     for (int y = 0; y < HEIGHT; y += STRIPE_HEIGHT) {
-        display_color_t pending;
-        /* 每完成一条带就检查新颜色，快速点击最多等待一条带的传输。 */
-        if (xQueuePeek(display->colors, &pending, 0) == pdTRUE) {
-            return ESP_OK;
-        }
-        render_stripe(display, y, color);
+        /* 只取消旧画面刷新，不改变应用保存的完整历史。 */
+        if (uxQueueMessagesWaiting(display->frames)) return ESP_OK;
+        render_stripe(display, y, frame);
         ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, y, WIDTH,
                                                      y + STRIPE_HEIGHT, display->stripe),
                             TAG, "Failed to draw stripe");
-        /* 缓冲区在 DMA 完成前保持有效，等待只影响显示任务。 */
         xSemaphoreTake(display->transfer_done, portMAX_DELAY);
     }
     return ESP_OK;
@@ -130,17 +110,11 @@ static esp_err_t draw_frame(struct display *display, int color)
 static void display_worker(void *context)
 {
     struct display *display = context;
-    esp_err_t ret = draw_frame(display, -1);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to clear screen: %s", esp_err_to_name(ret));
-    }
-    display_color_t color;
+    display_frame_t frame = {0};
     while (true) {
-        xQueueReceive(display->colors, &color, portMAX_DELAY);
-        ret = draw_frame(display, color);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to show color: %s", esp_err_to_name(ret));
-        }
+        const esp_err_t ret = draw_frame(display, &frame);
+        if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to draw frame: %s", esp_err_to_name(ret));
+        xQueueReceive(display->frames, &frame, portMAX_DELAY);
     }
 }
 
@@ -163,10 +137,10 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
     ESP_RETURN_ON_FALSE(display, ESP_ERR_NO_MEM, TAG, "Failed to allocate display");
     esp_err_t ret = ESP_ERR_NO_MEM;
     bool bus_ready = false;
-    display->colors = xQueueCreate(1, sizeof(display_color_t));
+    display->frames = xQueueCreate(1, sizeof(display_frame_t));
     display->transfer_done = xSemaphoreCreateBinary();
     display->stripe = heap_caps_malloc(WIDTH * STRIPE_HEIGHT * sizeof(uint16_t), MALLOC_CAP_DMA);
-    if (!display->colors || !display->transfer_done || !display->stripe) {
+    if (!display->frames || !display->transfer_done || !display->stripe) {
         goto cleanup;
     }
     /* 只分配 16 行 DMA 缓冲，避免整屏 RGB565 帧占用 150 KiB 内存。 */
@@ -195,7 +169,7 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
     /* 竖屏连接器朝下：设置横向扫描方向，避免文字左右镜像。 */
     ESP_GOTO_ON_ERROR(esp_lcd_panel_mirror(display->panel, true, false), cleanup, TAG, "Panel orientation failed");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_disp_on_off(display->panel, true), cleanup, TAG, "Display on failed");
-    /* 独立任务按最新颜色刷新；初始化成功后实例与任务随应用持续运行。 */
+    /* 独立任务显示最新快照；初始化成功后实例与任务随应用持续运行。 */
     if (xTaskCreate(display_worker, "display", 3072, display, 2, NULL) != pdPASS) {
         ret = ESP_ERR_NO_MEM;
         goto cleanup;
@@ -219,18 +193,16 @@ cleanup:
         const esp_err_t err = spi_bus_free(SPI2_HOST);
         if (err != ESP_OK) ESP_LOGW(TAG, "SPI cleanup failed: %s", esp_err_to_name(err));
     }
-    if (display->colors) vQueueDelete(display->colors);
+    if (display->frames) vQueueDelete(display->frames);
     if (display->transfer_done) vSemaphoreDelete(display->transfer_done);
     free(display->stripe);
     free(display);
     return ret;
 }
 
-esp_err_t display_show_color(display_handle_t handle, display_color_t color)
+esp_err_t display_show_frame(display_handle_t handle, const display_frame_t *frame)
 {
-    ESP_RETURN_ON_FALSE(handle && color >= DISPLAY_COLOR_RED && color <= DISPLAY_COLOR_BLUE,
-                        ESP_ERR_INVALID_ARG, TAG, "Invalid display color");
-    /* 单槽覆盖保持最新事件，调用方不等待 SPI 刷新。 */
-    xQueueOverwrite(handle->colors, &color);
+    ESP_RETURN_ON_FALSE(handle && frame, ESP_ERR_INVALID_ARG, TAG, "Missing display frame");
+    xQueueOverwrite(handle->frames, frame);
     return ESP_OK;
 }

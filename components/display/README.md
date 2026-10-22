@@ -1,55 +1,15 @@
-# Display component
+# display
 
-乐鑫托管驱动 `espressif/esp_lcd_ili9341` + ESP-IDF `esp_lcd`，驱动 SPI 接口的
-240×320 ILI9341 TFT-LCD。该型号为彩色 LCD，组件名使用 `display`。
+ILI9341 240×320 竖屏，固定白底黑字，SPI2 独占。
+默认 SCK/MOSI/CS/DC/RST = GPIO6/7/18/19/20，配置见组件 Kconfig。
+Wokwi LCD 不提供 RST 接口，实板连接 GPIO20；背光按模块要求接线。
 
-任意颜色按钮按下后，屏幕显示对应红/绿/蓝背景，并居中显示中英文颜色名称：
-“红色 / RED”“绿色 / GREEN”“蓝色 / BLUE”。中文字为 32×32 字模，英文为 12×20 字模；
-两种文字上下排列并作为整体居中，绿色背景用黑字，红、蓝背景用白字。
-画面保持到下次事件，上电为黑屏。
+`display_init(config, &handle)` 初始化面板及后台刷新任务。
+`display_show_frame(handle, &frame)` 复制显示快照到单槽队列，立即返回。
+16 行 DMA 缓冲分条刷新，传输完成后再复用；新画面可以取消旧刷新，但不影响应用历史。
 
-```c
-#include "display.h"
+`display_frame_t` 包含当前档位、字符锁定单位、输入中的点划及候选字符、历史页码和 10 行历史。
+上部显示当前输入，底部 y=169 起为固定历史区域；每行最多 37 个 ASCII 字符。
+字体由 `tools/generate_display_font.py` 生成：字母数字采用手工等宽点阵，其余符号来自 Noto Sans CJK SC，许可见 `fonts/NOTICE.md`。
 
-display_handle_t screen = NULL;
-const display_config_t config = {
-    .sclk_gpio = CONFIG_DISPLAY_SCLK_GPIO, .mosi_gpio = CONFIG_DISPLAY_MOSI_GPIO,
-    .cs_gpio = CONFIG_DISPLAY_CS_GPIO, .dc_gpio = CONFIG_DISPLAY_DC_GPIO,
-    .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
-};
-ESP_ERROR_CHECK(display_init(&config, &screen));
-ESP_ERROR_CHECK(display_show_color(screen, DISPLAY_COLOR_RED));
-```
-
-调用方声明 `PRIV_REQUIRES display`。初始化在启动阶段调用一次，实例随应用持续运行；
-当前不提供运行时销毁接口。组件独占 SPI2，像素时钟 40 MHz，颜色格式为 RGB565。
-面板初始化使用 BGR 子像素顺序及横向扫描翻转，适配连接器朝下的 240×320 竖屏；
-绘图缓冲仍为标准 RGB565，像素按高字节优先发送。
-`display_show_color()` 从任务或按钮回调调用，立即提交颜色；不适用于 ISR。
-后台任务独占屏幕，只保留最新颜色，不积压旧画面；每传完 16 行检查新事件并切换刷新。
-一帧的像素数据约需 31 ms 传输，实际可见延迟还包含消抖、调度及渲染时间。
-DMA 传输完成后才重用行缓冲，图像渐进刷新，不保证整屏同时切换。
-显示刷新不阻塞闪灯或蜂鸣器任务，驱动错误会记录日志。
-
-| 屏幕引脚 | 默认 GPIO |
-| --- | --- |
-| SCK | 6 |
-| MOSI | 7 |
-| CS | 18 |
-| D/C | 19 |
-| RST | 20 |
-
-默认引脚在组件 Kconfig 中配置，应用检查与已有按钮、LED、蜂鸣器引脚的冲突。
-Wokwi 连接 VCC→3V3、GND→GND；其模型不暴露 RST 和背光引脚，复位接线仅用于实板。
-MISO 不使用。实板须按所用模块的供电和背光要求接线，默认配置适配 3.3 V 逻辑。
-
-中英文字模来自开源 Noto Sans CJK SC Regular，仅嵌入“红绿蓝色”和“BDEGLNRU”字符，许可证见
-[fonts/OFL.txt](fonts/OFL.txt)。生成方式：
-
-```sh
-curl -fL https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf -o /tmp/display-font.otf
-uv run --with pillow python tools/generate_display_font.py /tmp/display-font.otf
-```
-
-生成脚本同时输出 `/tmp/esp32-display-preview.png` 供检查排版。
-构建和仿真见 [项目说明](../../AGENTS.md)。
+历史归档、字符/词间隔、分组和每 4 秒翻页由 `main/morse.c` 与应用主任务负责。
