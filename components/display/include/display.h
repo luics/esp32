@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
 #include "sdkconfig.h"
@@ -25,6 +26,8 @@ typedef struct {
 typedef struct {
     uint32_t selected_unit_ms;
     uint32_t character_unit_ms;
+    /* 新词可开始：初始显示，按住及词内静默时隐藏。 */
+    bool word_ready;
     char current_code[10];
     char decoded;
     unsigned page;

@@ -69,7 +69,7 @@ static uint64_t clock_ms;
 static bool sound, light;
 static unsigned starts, stops;
 static unsigned task_priority = 1;
-static uint64_t started_at, durations[13];
+static uint64_t started_at, durations[14];
 static display_frame_t last_frame;
 static button_input_edge_callback_t red_edge;
 static button_input_callback_t green_press;
@@ -102,7 +102,7 @@ esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handl
 esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
 esp_err_t beep_init(int gpio,uint32_t hz){assert(gpio==3 && hz==2000);return ESP_OK;}
 esp_err_t beep_set_active(bool active){
-    if(active){assert(!sound && starts<13);started_at=clock_ms;++starts;}
+    if(active){assert(!sound && starts<14);started_at=clock_ms;++starts;}
     else if(sound){durations[stops++]=clock_ms-started_at;}
     sound=active;return ESP_OK;
 }
@@ -120,17 +120,23 @@ esp_err_t button_input_create(int gpio,button_input_callback_t callback,void *ct
 void vTaskDelay(TickType_t ticks){
     /* 检查真实主循环在本轮处理边沿后的输出；不模拟或复述输入处理分支。 */
     if(clock_ms==20 || clock_ms==100 || clock_ms==350)assert(sound && light);
-    if(clock_ms==50 || clock_ms==300 || (clock_ms>=850 && clock_ms<1040) || clock_ms>=1440)assert(!sound && !light);
+    if(clock_ms==50 || clock_ms==300 || (clock_ms>=850 && clock_ms<1040) || (clock_ms>=1440 && clock_ms<2200) || clock_ms>=2700)assert(!sound && !light);
     if(clock_ms==70){assert(starts==1 && stops==1);assert(!strcmp(last_frame.current_code,"."));}
     if(clock_ms==400 || clock_ms==450){
         assert(sound && light && starts==3 && stops==2);
         assert(!strcmp(last_frame.current_code,"..") && last_frame.character_unit_ms==100);
     }
     if(clock_ms==900){assert(starts==3 && stops==3);assert(!strcmp(last_frame.current_code,"..-"));}
-    if(clock_ms>=1500){
-        assert(starts==13 && stops==13 && durations[0]==30 && durations[1]==200 && durations[2]==500);
+    /* 初始常亮；红键按住与七单位静默内常灭，绿键和换档不重置指示。
+     * 1420ms 松开的字符仍锁定 100ms，下一字符才使用旋钮的 60ms。 */
+    if(clock_ms<20 || (clock_ms>=2120 && clock_ms<2200) || clock_ms>=3120)
+        assert(last_frame.word_ready);
+    else assert(!last_frame.word_ready);
+    if(clock_ms==1500)assert(!strcmp(last_frame.current_code,"INVALID"));
+    if(clock_ms>=3200){
+        assert(starts==14 && stops==14 && durations[0]==30 && durations[1]==200 && durations[2]==500);
         for(unsigned i=3;i<13;++i)assert(durations[i]==20);
-        assert(!strcmp(last_frame.current_code,"INVALID"));
+        assert(durations[13]==500);
         longjmp(done,1);
     }
     /* 显示任务优先级为 2：持续就绪时，低优先级输入任务会错过完整短按。
@@ -144,16 +150,16 @@ void vTaskDelay(TickType_t ticks){
         if((clock_ms-1040)%40==20)red_edge(false,red_context);
     }
     switch(clock_ms){
-        case 20:case 100:case 350:red_edge(true,red_context);break;
-        case 50:case 300:case 850:red_edge(false,red_context);break;
-        case 70:case 400:case 450:case 900:green_press(green_context);break;
+        case 20:case 100:case 350:case 2200:red_edge(true,red_context);break;
+        case 50:case 300:case 850:case 2700:red_edge(false,red_context);break;
+        case 70:case 400:case 450:case 900:case 2160:case 2800:green_press(green_context);break;
     }
     }
 }
 int main(void){
     if(!setjmp(done))app_main();
     free(queue);
-    puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked");
+    puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:

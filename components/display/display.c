@@ -30,10 +30,10 @@
 #define HEIGHT 320
 #endif
 #define STRIPE_HEIGHT 16
-#define BEAT_LEFT (WIDTH - 12)
-#define BEAT_TOP 4
-#define BEAT_SIZE 7
-#define BEAT_RADIUS 2
+#define WORD_DOT_LEFT (WIDTH - 12)
+#define WORD_DOT_TOP 4
+#define WORD_DOT_SIZE 7
+#define WORD_DOT_RADIUS 2
 static const char *TAG = "display";
 static bool initialized;
 
@@ -109,7 +109,7 @@ static void draw_history_status(struct display *display, int top, int y, int mar
     draw_text(display, top, WIDTH - margin - (int)strlen(label) * 6 + 1, y, label, 1);
 }
 
-static void render_stripe(struct display *display, int top, const display_frame_t *frame, bool beat_visible)
+static void render_stripe(struct display *display, int top, const display_frame_t *frame)
 {
     for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = wire_color(0xffff);
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
@@ -131,26 +131,26 @@ static void render_stripe(struct display *display, int top, const display_frame_
     /* 历史区域固定在底部，只包含已确认字符；页码由绿键手动切换。 */
     for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 164 + row * 13, frame->history[row], 1);
 #endif
-    /* 右上角保留独立节拍点，与标题及输入文字分开。 */
-    for (int y = 0; y < BEAT_SIZE; ++y) {
-        const int row = BEAT_TOP + y - top;
+    /* 右上角小黑点表示可以开始新词，状态完全由输入任务的词间隔决定。 */
+    for (int y = 0; y < WORD_DOT_SIZE; ++y) {
+        const int row = WORD_DOT_TOP + y - top;
         if (row < 0 || row >= STRIPE_HEIGHT) continue;
-        for (int x = 0; x < BEAT_SIZE; ++x) {
-            const int dx = x - BEAT_SIZE / 2;
-            const int dy = y - BEAT_SIZE / 2;
-            if (beat_visible && dx * dx + dy * dy <= BEAT_RADIUS * BEAT_RADIUS) {
-                display->stripe[row * WIDTH + BEAT_LEFT + x] = 0;
+        for (int x = 0; x < WORD_DOT_SIZE; ++x) {
+            const int dx = x - WORD_DOT_SIZE / 2;
+            const int dy = y - WORD_DOT_SIZE / 2;
+            if (frame->word_ready && dx * dx + dy * dy <= WORD_DOT_RADIUS * WORD_DOT_RADIUS) {
+                display->stripe[row * WIDTH + WORD_DOT_LEFT + x] = 0;
             }
         }
     }
 }
 
-static esp_err_t draw_frame(struct display *display, const display_frame_t *frame, bool beat_visible)
+static esp_err_t draw_frame(struct display *display, const display_frame_t *frame)
 {
     for (int y = 0; y < HEIGHT; y += STRIPE_HEIGHT) {
         /* 只取消旧画面刷新，不改变应用保存的完整历史。 */
         if (uxQueueMessagesWaiting(display->frames)) return ESP_OK;
-        render_stripe(display, y, frame, beat_visible);
+        render_stripe(display, y, frame);
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
         /* 共用文字渲染，再转换为 OLED 的纵向 8 像素页；I2C 同步完成后才能复用。 */
         for (int row = 0; row < STRIPE_HEIGHT; ++row) {
@@ -172,71 +172,51 @@ static esp_err_t draw_frame(struct display *display, const display_frame_t *fram
     return ESP_OK;
 }
 
-static esp_err_t draw_beat(struct display *display, bool visible)
+static esp_err_t draw_word_indicator(struct display *display, bool visible)
 {
-    /* 空闲时仅更新 7×7 区域，避免为了闪点反复重画整屏。 */
-    for (int y = 0; y < BEAT_SIZE; ++y) {
-        for (int x = 0; x < BEAT_SIZE; ++x) {
-            const int dx = x - BEAT_SIZE / 2;
-            const int dy = y - BEAT_SIZE / 2;
-            const bool black = visible && dx * dx + dy * dy <= BEAT_RADIUS * BEAT_RADIUS;
+    /* 显隐变化先刷新 7×7 指示区域，随后再更新正文，尽早响应红键。 */
+    for (int y = 0; y < WORD_DOT_SIZE; ++y) {
+        for (int x = 0; x < WORD_DOT_SIZE; ++x) {
+            const int dx = x - WORD_DOT_SIZE / 2;
+            const int dy = y - WORD_DOT_SIZE / 2;
+            const bool black = visible && dx * dx + dy * dy <= WORD_DOT_RADIUS * WORD_DOT_RADIUS;
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
-            sh1107_set_pixel(display->pixels, BEAT_LEFT + x, BEAT_TOP + y, !black);
+            sh1107_set_pixel(display->pixels, WORD_DOT_LEFT + x, WORD_DOT_TOP + y, !black);
 #else
-            display->stripe[y * BEAT_SIZE + x] = black ? 0 : wire_color(0xffff);
+            display->stripe[y * WORD_DOT_SIZE + x] = black ? 0 : wire_color(0xffff);
 #endif
         }
     }
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
-    /* 仅刷新覆盖闪点的前两页；保留同页标题和状态文字。 */
+    /* 仅刷新覆盖指示点的前两页；保留同页标题和状态文字。 */
     ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, 0, WIDTH, 16,
-                                                 display->pixels), TAG, "Failed to draw OLED beat");
+                                                 display->pixels), TAG, "Failed to draw OLED word indicator");
 #else
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, BEAT_LEFT, BEAT_TOP,
-                                                 BEAT_LEFT + BEAT_SIZE, BEAT_TOP + BEAT_SIZE,
-                                                 display->stripe), TAG, "Failed to draw beat");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, WORD_DOT_LEFT, WORD_DOT_TOP,
+                                                 WORD_DOT_LEFT + WORD_DOT_SIZE, WORD_DOT_TOP + WORD_DOT_SIZE,
+                                                 display->stripe), TAG, "Failed to draw word indicator");
     xSemaphoreTake(display->transfer_done, portMAX_DELAY);
 #endif
     return ESP_OK;
 }
 
-static TickType_t beat_period(uint32_t unit_ms)
-{
-    /* 提示字符间隔：每次显示或隐藏均持续三个时间单位。 */
-    const TickType_t ticks = pdMS_TO_TICKS(3 * (unit_ms ? unit_ms : 100));
-    return ticks ? ticks : 1;
-}
-
 static void display_worker(void *context)
 {
     struct display *display = context;
-    display_frame_t frame = {.selected_unit_ms = 100, .character_unit_ms = 100};
-    TickType_t period = beat_period(frame.selected_unit_ms);
-    TickType_t deadline = xTaskGetTickCount() + period;
+    display_frame_t frame = {
+        .selected_unit_ms = 100, .character_unit_ms = 100, .word_ready = true,
+    };
     bool visible = true;
-    bool full_frame = true;
     while (true) {
-        const TickType_t now = xTaskGetTickCount();
-        /* 使用绝对截止时间；新输入不重置节拍，刷新耗时也不逐拍累积漂移。 */
-        if ((int32_t)(now - deadline) >= 0) {
-            const TickType_t elapsed = (now - deadline) / period + 1;
-            if (elapsed & 1) visible = !visible;
-            deadline += elapsed * period;
+        /* 新词指示随快照更新，不再由显示任务独立计时或周期闪烁。 */
+        if (frame.word_ready != visible) {
+            const esp_err_t ret = draw_word_indicator(display, frame.word_ready);
+            if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to draw word indicator: %s", esp_err_to_name(ret));
+            visible = frame.word_ready;
         }
-        const esp_err_t ret = full_frame ? draw_frame(display, &frame, visible)
-                                        : draw_beat(display, visible);
+        const esp_err_t ret = draw_frame(display, &frame);
         if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to draw display: %s", esp_err_to_name(ret));
-        const int32_t remaining = (int32_t)(deadline - xTaskGetTickCount());
-        full_frame = xQueueReceive(display->frames, &frame, remaining > 0 ? remaining : 0) == pdTRUE;
-        if (full_frame) {
-            const TickType_t next_period = beat_period(frame.selected_unit_ms);
-            if (next_period != period) {
-                /* 换档后立即从亮点重新起拍，不改变摩斯码字符自身的锁定单位。 */
-                period = next_period;
-                visible = true;
-                deadline = xTaskGetTickCount() + period;
-            }
-        }
+        xQueueReceive(display->frames, &frame, portMAX_DELAY);
     }
 }
 

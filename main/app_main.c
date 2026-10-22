@@ -82,6 +82,8 @@ static void show_state(display_handle_t screen, const telegraph_t *telegraph,
     const morse_t *morse = &telegraph->morse;
     memset(frame, 0, sizeof(*frame));
     frame->selected_unit_ms = selected;
+    /* 复用解码器的七单位词边界，按住时即使旧词已结束也立即隐藏。 */
+    frame->word_ready = !telegraph->pressed && (!morse->has_signal || morse->word_done);
     frame->character_unit_ms = telegraph->pressed ? telegraph->pressed_unit_ms
                                                 : (morse->current[0] ? morse->unit_ms : selected);
     strcpy(frame->current_code, morse->invalid ? "INVALID" : morse->current);
