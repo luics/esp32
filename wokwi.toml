@@ -1,6 +1,6 @@
 [wokwi]
 # 摩斯码电报机等效仿真：使用 DevKitC-1 的 GPIO8 连接独立 WS2812 元件。
-# 点 GPIO10（R）、划 GPIO9（G），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
+# 点 GPIO10（R）、划 GPIO9（G）、复位 GPIO11（B），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
 # 构建：eim run "bash tools/build_wokwi.sh build" stable-mcp
 # 仿真固件使用 GRB；实板默认 RGB，见 AGENTS.md。
 version = 1

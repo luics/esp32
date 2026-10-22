@@ -19,6 +19,10 @@
 #define WIDTH 240
 #define HEIGHT 320
 #define STRIPE_HEIGHT 16
+#define BEAT_LEFT 228
+#define BEAT_TOP 4
+#define BEAT_SIZE 7
+#define BEAT_RADIUS 2
 static const char *TAG = "display";
 static bool initialized;
 
@@ -75,7 +79,7 @@ static void centered(struct display *display, int top, int y, const char *text, 
     draw_text(display, top, (WIDTH - (int)strlen(text) * 6 * scale + scale) / 2, y, text, scale);
 }
 
-static void render_stripe(struct display *display, int top, const display_frame_t *frame)
+static void render_stripe(struct display *display, int top, const display_frame_t *frame, bool beat_visible)
 {
     for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = wire_color(0xffff);
     char label[48];
@@ -91,14 +95,26 @@ static void render_stripe(struct display *display, int top, const display_frame_
     draw_text(display, top, 9, 169, label, 1);
     /* 历史区域固定在底部，只包含已确认字符；页码随四秒轮播更新。 */
     for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 188 + row * 13, frame->history[row], 1);
+    /* 右上角保留独立节拍点，与标题及输入文字分开。 */
+    for (int y = 0; y < BEAT_SIZE; ++y) {
+        const int row = BEAT_TOP + y - top;
+        if (row < 0 || row >= STRIPE_HEIGHT) continue;
+        for (int x = 0; x < BEAT_SIZE; ++x) {
+            const int dx = x - BEAT_SIZE / 2;
+            const int dy = y - BEAT_SIZE / 2;
+            if (beat_visible && dx * dx + dy * dy <= BEAT_RADIUS * BEAT_RADIUS) {
+                display->stripe[row * WIDTH + BEAT_LEFT + x] = 0;
+            }
+        }
+    }
 }
 
-static esp_err_t draw_frame(struct display *display, const display_frame_t *frame)
+static esp_err_t draw_frame(struct display *display, const display_frame_t *frame, bool beat_visible)
 {
     for (int y = 0; y < HEIGHT; y += STRIPE_HEIGHT) {
         /* 只取消旧画面刷新，不改变应用保存的完整历史。 */
         if (uxQueueMessagesWaiting(display->frames)) return ESP_OK;
-        render_stripe(display, y, frame);
+        render_stripe(display, y, frame, beat_visible);
         ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, y, WIDTH,
                                                      y + STRIPE_HEIGHT, display->stripe),
                             TAG, "Failed to draw stripe");
@@ -107,14 +123,61 @@ static esp_err_t draw_frame(struct display *display, const display_frame_t *fram
     return ESP_OK;
 }
 
+static esp_err_t draw_beat(struct display *display, bool visible)
+{
+    /* 空闲时仅更新 7×7 区域，避免为了闪点反复重画整屏。 */
+    for (int y = 0; y < BEAT_SIZE; ++y) {
+        for (int x = 0; x < BEAT_SIZE; ++x) {
+            const int dx = x - BEAT_SIZE / 2;
+            const int dy = y - BEAT_SIZE / 2;
+            const bool black = visible && dx * dx + dy * dy <= BEAT_RADIUS * BEAT_RADIUS;
+            display->stripe[y * BEAT_SIZE + x] = black ? 0 : wire_color(0xffff);
+        }
+    }
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, BEAT_LEFT, BEAT_TOP,
+                                                 BEAT_LEFT + BEAT_SIZE, BEAT_TOP + BEAT_SIZE,
+                                                 display->stripe), TAG, "Failed to draw beat");
+    xSemaphoreTake(display->transfer_done, portMAX_DELAY);
+    return ESP_OK;
+}
+
+static TickType_t beat_period(uint32_t unit_ms)
+{
+    /* 提示字符间隔：每次显示或隐藏均持续三个时间单位。 */
+    const TickType_t ticks = pdMS_TO_TICKS(3 * (unit_ms ? unit_ms : 200));
+    return ticks ? ticks : 1;
+}
+
 static void display_worker(void *context)
 {
     struct display *display = context;
-    display_frame_t frame = {0};
+    display_frame_t frame = {.selected_unit_ms = 200};
+    TickType_t period = beat_period(frame.selected_unit_ms);
+    TickType_t deadline = xTaskGetTickCount() + period;
+    bool visible = true;
+    bool full_frame = true;
     while (true) {
-        const esp_err_t ret = draw_frame(display, &frame);
-        if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to draw frame: %s", esp_err_to_name(ret));
-        xQueueReceive(display->frames, &frame, portMAX_DELAY);
+        const TickType_t now = xTaskGetTickCount();
+        /* 使用绝对截止时间；新输入不重置节拍，刷新耗时也不逐拍累积漂移。 */
+        if ((int32_t)(now - deadline) >= 0) {
+            const TickType_t elapsed = (now - deadline) / period + 1;
+            if (elapsed & 1) visible = !visible;
+            deadline += elapsed * period;
+        }
+        const esp_err_t ret = full_frame ? draw_frame(display, &frame, visible)
+                                        : draw_beat(display, visible);
+        if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to draw display: %s", esp_err_to_name(ret));
+        const int32_t remaining = (int32_t)(deadline - xTaskGetTickCount());
+        full_frame = xQueueReceive(display->frames, &frame, remaining > 0 ? remaining : 0) == pdTRUE;
+        if (full_frame) {
+            const TickType_t next_period = beat_period(frame.selected_unit_ms);
+            if (next_period != period) {
+                /* 换档后立即从亮点重新起拍，不改变摩斯码字符自身的锁定单位。 */
+                period = next_period;
+                visible = true;
+                deadline = xTaskGetTickCount() + period;
+            }
+        }
     }
 }
 

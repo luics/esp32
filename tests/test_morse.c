@@ -67,10 +67,9 @@ static void test_hello_world(void)
     assert(morse_advance(&m, m.ended_ms + 1050));
     char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
     assert(morse_history_lines(&m, 0, rows) == 1);
-    assert(strcmp(rows[0], ".... . .-.. .-.. ---") == 0);
-    assert(strcmp(rows[1], "> HELLO") == 0);
-    assert(strcmp(rows[2], ".-- --- .-. .-.. -..") == 0);
-    assert(strcmp(rows[3], "> WORLD") == 0);
+    assert(strcmp(rows[0], "> HELLO .... . .-.. .-.. ---") == 0);
+    assert(strcmp(rows[1], "> WORLD .-- --- .-. .-.. -..") == 0);
+    assert(rows[2][0] == '\0');
     free(m.history);
 }
 
@@ -85,7 +84,8 @@ static void test_history_pagination(void)
     assert(m.count == 600 && m.capacity >= 600);
     char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
     size_t pages = morse_history_lines(&m, 0, rows);
-    assert(pages == 120); /* 未成词时每个字符占两行。 */
+    assert(pages == 60); /* 紧凑格式每个字符只占一行。 */
+    assert(strcmp(rows[0], "> E .") == 0);
     size_t decoded = 0;
     for (size_t page = 0; page < pages; ++page) {
         assert(morse_history_lines(&m, page, rows) == pages);
@@ -106,6 +106,35 @@ static void test_history_pagination(void)
     }
     assert(decoded == 600);
     free(m.history);
+}
+
+static void test_compact_word_wrapping(void)
+{
+    morse_entry_t entries[17] = {0};
+    for (size_t i = 0; i < 17; ++i) {
+        strcpy(entries[i].code, i < 9 ? "." : "-----");
+        entries[i].decoded = i < 9 ? 'E' : '0';
+        entries[i].word_end = i < 9 || i == 16;
+    }
+    morse_t m = {.history = entries, .count = 17};
+    char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
+    assert(morse_history_lines(&m, 0, rows) == 2);
+    assert(strcmp(rows[8], "> E .") == 0);
+    assert(rows[9][0] == '\0'); /* 两行单词整体移到下一页。 */
+    assert(morse_history_lines(&m, 1, rows) == 2);
+    char joined[2 * MORSE_HISTORY_COLS + 1];
+    strcpy(joined, rows[0]);
+    strcat(joined, rows[1]);
+    assert(!strcmp(joined, "> 00000000 ----- ----- ----- ----- ----- ----- ----- -----"));
+    assert(rows[2][0] == '\0');
+
+    /* 五个数字的完整行恰好 37 列，不产生多余空行。 */
+    m.history = entries + 9;
+    m.count = 5;
+    m.history[4].word_end = true;
+    assert(morse_history_lines(&m, 0, rows) == 1);
+    assert(!strcmp(rows[0], "> 00000 ----- ----- ----- ----- -----"));
+    assert(strlen(rows[0]) == MORSE_HISTORY_COLS && rows[1][0] == '\0');
 }
 
 static void test_invalid_and_digits(void)
@@ -136,6 +165,7 @@ int main(void)
     test_boundaries_and_speed();
     test_hello_world();
     test_history_pagination();
+    test_compact_word_wrapping();
     test_invalid_and_digits();
     puts("PASS: timing at all four speeds, HELLO WORLD, speed lock, invalid input, full-history pagination");
 }

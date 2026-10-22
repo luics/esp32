@@ -8,7 +8,7 @@ repository when they override this baseline.
 
 - 环境：ESP-IDF v6.1，EIM 环境 `stable-mcp`，target `esp32c6`，Flash 8 MB。
 - 红 GPIO10 发送点（1 单位红光及声音），绿 GPIO9/BOOT 发送划（3 单位绿光及声音）；
-  蓝按钮移除，复位时松开 BOOT。按钮长按不重复，FIFO 排队保留点击，最少静默 1 单位。
+  蓝 GPIO11 复位，先关闭声光后 esp_restart，复用 app_main 初始化；长按跨重启等待松开再使能，复位时松开 BOOT。按钮长按不重复，FIFO 排队保留点击，最少静默 1 单位。
 - GPIO4 电位器由 `interval_control` 组件读取，从低到高选择 200（默认）/150/100/60 ms。
   新档位从下一个字符生效；静默从声光结束起算，3 单位确认字符、7 单位确认词。
 - WS2812 GPIO8：实板 RGB，Wokwi 独立固件 GRB。蜂鸣器 GPIO3、2 kHz，LEDC timer0/channel0。
@@ -16,12 +16,12 @@ repository when they override this baseline.
   全部历史存 RAM，断电清空，底部每 4 秒自动轮播，输入中的字符不进历史。
   SPI2 独占，SCK/MOSI/CS/DC/RST = GPIO6/7/18/19/20，Wokwi 不接 RST。
 - 配置默认值见 `sdkconfig.defaults`，接口见各组件 README，详细操作与验证见 [README.md](README.md)。
-  `volume_control`、蓝按钮 GPIO 配置和蜂鸣器固定时长配置已移除。
+  `volume_control` 和蜂鸣器固定时长配置已移除；蓝键使用 `CONFIG_BUTTON_INPUT_BLUE_GPIO`。
 - 构建（修改配置后的重新配置授权规则见下文）：
   `eim run "idf.py reconfigure build" stable-mcp`；仿真：
   `eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp`。
   实板 `build/`/根 sdkconfig 与仿真 `build-wokwi/` 独立。保留 UART/USB Serial-JTAG 日志。
-- Wokwi 标题为“摩斯码电报机”，功能标签使用“功能 · port”；R/G 为点/划快捷键。
+- Wokwi 标题为“摩斯码电报机”，功能标签使用“功能 · port”；R/G/B 为点/划/复位快捷键。
   验证须观察红/绿灯、声音与屏幕输入、解码、分组、历史轮播，不能仅检查启动日志。
   替代模型不复现完整 Zero 硬件；实板烧录仍需用户授权。
 

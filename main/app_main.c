@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdatomic.h>
+#include "driver/gpio.h"
 #include <string.h>
 #include "blink.h"
 #include "beep.h"
@@ -9,12 +11,14 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "telegraph";
+static atomic_bool reset_armed;
 typedef struct {
     int gpio;
     char symbol;
@@ -31,6 +35,26 @@ static void on_button_press(void *context)
     if (xQueueSend(button->events, &button->symbol, 0) != pdTRUE) {
         ESP_LOGW(TAG, "Input queue full: rejected %c", button->symbol);
     }
+}
+
+static void on_reset_press(void *context)
+{
+    /* 复位通知独立于点划 FIFO；按钮回调只通知，不在驱动任务中重启。 */
+    if (atomic_load(&reset_armed)) xTaskNotifyGive((TaskHandle_t)context);
+}
+
+static void restart_if_requested(blink_handle_t led)
+{
+    /* 上电时仍按住蓝键则忽略，松开后才接受下一次按下，防止循环重启。 */
+    if (gpio_get_level(CONFIG_BUTTON_INPUT_BLUE_GPIO)) atomic_store(&reset_armed, true);
+    if (ulTaskNotifyTake(pdTRUE, 0) == 0) return;
+    ESP_LOGI(TAG, "Blue reset: restarting through app_main initialization");
+    const esp_err_t sound_ret = beep_set_active(false);
+    const esp_err_t led_ret = blink_off(led);
+    if (sound_ret != ESP_OK) ESP_LOGW(TAG, "Reset mute failed: %s", esp_err_to_name(sound_ret));
+    if (led_ret != ESP_OK) ESP_LOGW(TAG, "Reset LED off failed: %s", esp_err_to_name(led_ret));
+    /* 统一复用现有启动流程，避免单独维护一份状态与外设重置逻辑。 */
+    esp_restart();
 }
 
 static void show_state(display_handle_t screen, const morse_t *morse,
@@ -60,7 +84,7 @@ void app_main(void)
     };
     /* 上电前统一检查引脚，避免任何外设初始化覆盖其他设备。 */
     const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BEEP_GPIO, CONFIG_INTERVAL_CONTROL_ADC_GPIO,
-                        buttons[0].gpio, buttons[1].gpio, screen_config.sclk_gpio,
+                        buttons[0].gpio, buttons[1].gpio, CONFIG_BUTTON_INPUT_BLUE_GPIO, screen_config.sclk_gpio,
                         screen_config.mosi_gpio, screen_config.cs_gpio, screen_config.dc_gpio,
                         screen_config.reset_gpio};
     for (size_t i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i) {
@@ -81,14 +105,19 @@ void app_main(void)
                                             &buttons[i], &buttons[i].handle));
     }
 
+    button_input_handle_t reset_button = NULL;
+    ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_BLUE_GPIO, on_reset_press,
+                                        xTaskGetCurrentTaskHandle(), &reset_button));
+
     morse_t morse = {0};
     display_frame_t frame;
     size_t page = 0;
     uint64_t flip_at = now_ms() + 4000;
     uint32_t selected = interval_control_get_unit_ms();
     show_state(screen, &morse, selected, page, &frame);
-    ESP_LOGI(TAG, "Ready: red=dot, green=dash; 3 units=letter, 7 units=word");
+    ESP_LOGI(TAG, "Ready: red=dot, green=dash, blue=reset; 3 units=letter, 7 units=word");
     while (true) {
+        restart_if_requested(led);
         const size_t before = morse.count;
         const bool word_before = morse.word_done;
         ESP_ERROR_CHECK(morse_advance(&morse, now_ms()) ? ESP_OK : ESP_ERR_NO_MEM);
@@ -115,7 +144,11 @@ void app_main(void)
         char symbol;
         if (xQueueReceive(events, &symbol, pdMS_TO_TICKS(10) ? pdMS_TO_TICKS(10) : 1) != pdTRUE) continue;
         /* 最少留一个单位静默，快速点击排队发送，不覆盖或截断上一个信号。 */
-        while (morse.has_signal && now_ms() < morse.ended_ms + morse.unit_ms) vTaskDelay(1);
+        while (morse.has_signal && now_ms() < morse.ended_ms + morse.unit_ms) {
+            restart_if_requested(led);
+            vTaskDelay(1);
+        }
+        restart_if_requested(led);
         /* 收到按键时再次结算边界，避免在三/七单位临界处把字符错误合并。 */
         const size_t old_count = morse.count;
         const bool old_word = morse.word_done;
@@ -139,7 +172,10 @@ void app_main(void)
         }
         /* 定长播放：按住按钮不延长，旋钮变化也不改动当前字符的时序。 */
         const uint64_t end = now_ms() + duration;
-        while (now_ms() < end) vTaskDelay(1);
+        while (now_ms() < end) {
+            restart_if_requested(led);
+            vTaskDelay(1);
+        }
         const esp_err_t stop_ret = beep_set_active(false);
         ESP_ERROR_CHECK(blink_off(led));
         ESP_ERROR_CHECK(stop_ret);

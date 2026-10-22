@@ -120,24 +120,24 @@ size_t morse_history_lines(const morse_t *morse, size_t page,
         if (end == morse->count) end = start;
         size_t code_length = end - start;
         for (size_t i = start; i <= end; ++i) code_length += strlen(morse->history[i].code);
-        const size_t group_lines = (code_length + MORSE_HISTORY_COLS - 1) / MORSE_HISTORY_COLS
-                                  + (end - start + 3 + MORSE_HISTORY_COLS - 1) / MORSE_HISTORY_COLS;
+        /* 每组紧凑显示为 "> 解码文本 摩斯码"，统一计算换行与分页占用。 */
+        const size_t group_length = 3 + (end - start + 1) + code_length;
+        const size_t group_lines = (group_length + MORSE_HISTORY_COLS - 1) / MORSE_HISTORY_COLS;
         const size_t used = layout.line % MORSE_HISTORY_ROWS;
         /* 一页容得下的单词不跨页；超长词才逐行延续。 */
         if (used && group_lines <= MORSE_HISTORY_ROWS && used + group_lines > MORSE_HISTORY_ROWS) {
             while (layout.line % MORSE_HISTORY_ROWS) push_line(&layout, "");
         }
         char line[MORSE_HISTORY_COLS + 1] = "";
-        for (size_t i = start; i <= end; ++i) {
-            if (i != start) append_text(&layout, line, " ");
-            append_text(&layout, line, morse->history[i].code);
-        }
-        if (line[0]) push_line(&layout, line);
-        line[0] = '\0';
         append_text(&layout, line, "> ");
         for (size_t i = start; i <= end; ++i) {
             const char decoded[] = {morse->history[i].decoded, '\0'};
             append_text(&layout, line, decoded);
+        }
+        append_text(&layout, line, " ");
+        for (size_t i = start; i <= end; ++i) {
+            if (i != start) append_text(&layout, line, " ");
+            append_text(&layout, line, morse->history[i].code);
         }
         if (line[0]) push_line(&layout, line);
         start = end + 1;

@@ -17,4 +17,14 @@ menu "按钮输入配置"
             红色按钮连接此 GPIO 与 GND，内部上拉并使用软件消抖。
             引脚须与绿色按钮及灯珠数据引脚不同。
 
+    config BUTTON_INPUT_BLUE_GPIO
+        int "蓝色复位按钮 GPIO（低电平按下）"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 11
+        help
+            蓝色按钮连接此 GPIO 与 GND，复用内部上拉与消抖驱动。
+            按下后应用调用 esp_restart，重新执行统一的启动初始化流程。
+            引脚须与红绿按钮、灯珠及其他外设不同。
+
 endmenu
