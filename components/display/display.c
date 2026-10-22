@@ -101,7 +101,7 @@ static void draw_history_status(struct display *display, int top, int y, int mar
                                 const display_frame_t *frame)
 {
     char label[32];
-    /* 页码与字符锁定单位共用一行，两端对齐，为历史内容留出空间。 */
+    /* 页码与字符锁定单位固定在屏幕底部，两端对齐，为历史内容留出空间。 */
     snprintf(label, sizeof(label), "%u/%u", frame->page ? frame->page : 1,
              frame->pages ? frame->pages : 1);
     draw_text(display, top, margin, y, label, 1);
@@ -118,18 +118,18 @@ static void render_stripe(struct display *display, int top, const display_frame_
     centered(display, top, 16, frame->current_code, 2);
     const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
     centered(display, top, 35, decoded, 2);
-    draw_history_status(display, top, 55, 4, frame);
+    draw_history_status(display, top, HEIGHT - 11, 4, frame);
     for (int row = 0; row < DISPLAY_HISTORY_ROWS; ++row) {
-        draw_text(display, top, 4, 66 + row * 10, frame->history[row], 1);
+        draw_text(display, top, 4, 55 + row * 10, frame->history[row], 1);
     }
 #else
     centered(display, top, 8, "MORSE TELEGRAPH", 2);
     centered(display, top, 33, frame->current_code, 3);
     const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
     centered(display, top, 71, decoded, 5);
-    draw_history_status(display, top, 145, 9, frame);
+    draw_history_status(display, top, HEIGHT - 11, 9, frame);
     /* 历史区域固定在底部，只包含已确认字符；页码由绿键手动切换。 */
-    for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 164 + row * 13, frame->history[row], 1);
+    for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 145 + row * 13, frame->history[row], 1);
 #endif
     /* 右上角小黑点表示可以开始新词，状态完全由输入任务的词间隔决定。 */
     for (int y = 0; y < WORD_DOT_SIZE; ++y) {
