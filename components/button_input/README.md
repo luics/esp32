@@ -1,11 +1,17 @@
 # button_input
 
-封装 espressif/button 的 GPIO 按钮，内部上拉，低电平有效，驱动消抖。
-`button_input_create(gpio, callback, context, &handle)` 初始化并注册 `BUTTON_PRESS_DOWN` 回调。
-每次按下回调一次，长按不重复；回调在任务上下文执行，应快速返回。
+封装 espressif/button 的 GPIO 按钮，内部上拉、低电平有效，复用驱动消抖。
+`button_input_create(gpio, callback, context, &handle)` 每次按下回调一次，长按不重复。
+`button_input_create_edges(gpio, callback, context, &handle)` 按下/松开各回调一次，回调参数为 `pressed` 与上下文。
+两种接口共用初始化与错误清理；回调在驱动任务中运行，须快速返回。
 
-红色点按钮 `CONFIG_BUTTON_INPUT_RED_GPIO=10`，绿色划按钮 `CONFIG_BUTTON_INPUT_GPIO=9`。
-按钮另一端接 GND。蓝色复位按钮 `CONFIG_BUTTON_INPUT_BLUE_GPIO=11`，复用相同驱动。
-GPIO9/BOOT 为启动配置引脚，复位时保持松开。
-应用红绿回调投递点划事件；蓝键独立通知应用任务，应用先关闭声光再 `esp_restart()`，统一复用启动初始化。
-蓝键在启动时被按住则忽略，松开后重新接受按下，避免长按跨重启循环。
+- 红 GPIO10：边沿及时间戳投递给应用，松开时识别点划；不足 3 单位为点，达到 3 单位为划。
+  阈值单位在按下时锁定；输入中的字符继续使用该字符的单位。按下即亮红灯并以 2 kHz 发声，按住达 3 单位切换绿灯提示；松开立即关闭声光后再识别，
+  时长跟随实际按住时间，不补播固定时长。
+- 绿 GPIO9/BOOT：每次按下翻到下一历史页，末页回到首页；不发送点划，长按不连续翻页。
+- 蓝 GPIO11：独立通知主任务，先关闭声光再 `esp_restart()`，复用启动初始化。
+  启动时被按住则忽略，松开后重新接受按下，避免循环重启。
+
+按钮另一端均接 GND。GPIO9 是启动配置引脚，复位时保持松开。
+应用用 64 槽事件 FIFO 传递消抖后的边沿，非阻塞处理声光；按住红键、发声期间仍处理翻页和复位。
+队列溢出时关闭声光，取消未完成输入并等待松开，防止丢失松开边沿后持续发声。

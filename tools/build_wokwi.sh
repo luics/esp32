@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# 使用独立生成配置和构建目录，防止仿真 GRB 设置影响实板 RGB 固件。
+# 使用独立生成配置和构建目录，隔离仿真 GRB/SH1107 与实板 RGB/现有 ILI9341 固件。
 cd "$(dirname "$0")/.."
 if [ "$#" -eq 0 ]; then
     set -- build

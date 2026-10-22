@@ -1,9 +1,19 @@
 #pragma once
 #include <stdint.h>
 #include "esp_err.h"
+#include "sdkconfig.h"
+
+#ifdef CONFIG_DISPLAY_WOKWI_SH1107
+#define DISPLAY_HISTORY_ROWS 6
+#define DISPLAY_HISTORY_COLS 20
+#else
+#define DISPLAY_HISTORY_ROWS 10
+#define DISPLAY_HISTORY_COLS 37
+#endif
 
 typedef struct display *display_handle_t;
 typedef struct {
+    /* SPI SCK/MOSI；SH1107 仿真中分别作为 I2C SCL/SDA。 */
     int sclk_gpio;
     int mosi_gpio;
     int cs_gpio;

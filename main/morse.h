@@ -31,6 +31,7 @@ char morse_decode(const char *code);
 bool morse_advance(morse_t *morse, uint64_t now_ms);
 void morse_begin(morse_t *morse, char symbol, uint32_t unit_ms);
 void morse_end(morse_t *morse, uint64_t now_ms);
-/* 已完成单词成组；未完成单词的历史字符单独成组，按页浏览全部记录。 */
+/* 最新字符/词组优先分页，词内顺序不变；行列数须在 ROWS/COLS 上限内且非零。 */
 size_t morse_history_lines(const morse_t *morse, size_t page,
+                         size_t row_count, size_t columns,
                          char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1]);

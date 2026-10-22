@@ -66,9 +66,9 @@ static void test_hello_world(void)
     }
     assert(morse_advance(&m, m.ended_ms + 1050));
     char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
-    assert(morse_history_lines(&m, 0, rows) == 1);
-    assert(strcmp(rows[0], "> HELLO .... . .-.. .-.. ---") == 0);
-    assert(strcmp(rows[1], "> WORLD .-- --- .-. .-.. -..") == 0);
+    assert(morse_history_lines(&m, 0, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows) == 1);
+    assert(strcmp(rows[1], "> HELLO .... . .-.. .-.. ---") == 0);
+    assert(strcmp(rows[0], "> WORLD .-- --- .-. .-.. -..") == 0);
     assert(rows[2][0] == '\0');
     free(m.history);
 }
@@ -83,23 +83,23 @@ static void test_history_pagination(void)
     }
     assert(m.count == 600 && m.capacity >= 600);
     char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
-    size_t pages = morse_history_lines(&m, 0, rows);
+    size_t pages = morse_history_lines(&m, 0, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows);
     assert(pages == 60); /* 紧凑格式每个字符只占一行。 */
     assert(strcmp(rows[0], "> E .") == 0);
     size_t decoded = 0;
     for (size_t page = 0; page < pages; ++page) {
-        assert(morse_history_lines(&m, page, rows) == pages);
+        assert(morse_history_lines(&m, page, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows) == pages);
         for (size_t row = 0; row < MORSE_HISTORY_ROWS; ++row) {
             for (const char *c = rows[row]; *c; ++c) decoded += *c == 'E';
         }
     }
     assert(decoded == 600);
     assert(morse_advance(&m, m.ended_ms + 420));
-    pages = morse_history_lines(&m, 0, rows); /* 超长单词跨页，无截断。 */
+    pages = morse_history_lines(&m, 0, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows); /* 超长单词跨页，无截断。 */
     assert(pages > 1);
     decoded = 0;
     for (size_t page = 0; page < pages; ++page) {
-        morse_history_lines(&m, page, rows);
+        morse_history_lines(&m, page, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows);
         for (size_t row = 0; row < MORSE_HISTORY_ROWS; ++row) {
             for (const char *c = rows[row]; *c; ++c) decoded += *c == 'E';
         }
@@ -112,16 +112,16 @@ static void test_compact_word_wrapping(void)
 {
     morse_entry_t entries[17] = {0};
     for (size_t i = 0; i < 17; ++i) {
-        strcpy(entries[i].code, i < 9 ? "." : "-----");
-        entries[i].decoded = i < 9 ? 'E' : '0';
-        entries[i].word_end = i < 9 || i == 16;
+        strcpy(entries[i].code, i < 8 ? "-----" : ".");
+        entries[i].decoded = i < 8 ? '0' : 'E';
+        entries[i].word_end = i == 7 || i >= 8;
     }
     morse_t m = {.history = entries, .count = 17};
     char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
-    assert(morse_history_lines(&m, 0, rows) == 2);
+    assert(morse_history_lines(&m, 0, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows) == 2);
     assert(strcmp(rows[8], "> E .") == 0);
     assert(rows[9][0] == '\0'); /* 两行单词整体移到下一页。 */
-    assert(morse_history_lines(&m, 1, rows) == 2);
+    assert(morse_history_lines(&m, 1, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows) == 2);
     char joined[2 * MORSE_HISTORY_COLS + 1];
     strcpy(joined, rows[0]);
     strcat(joined, rows[1]);
@@ -129,12 +129,110 @@ static void test_compact_word_wrapping(void)
     assert(rows[2][0] == '\0');
 
     /* 五个数字的完整行恰好 37 列，不产生多余空行。 */
-    m.history = entries + 9;
+    m.history = entries;
     m.count = 5;
     m.history[4].word_end = true;
-    assert(morse_history_lines(&m, 0, rows) == 1);
+    assert(morse_history_lines(&m, 0, MORSE_HISTORY_ROWS, MORSE_HISTORY_COLS, rows) == 1);
     assert(!strcmp(rows[0], "> 00000 ----- ----- ----- ----- -----"));
     assert(strlen(rows[0]) == MORSE_HISTORY_COLS && rows[1][0] == '\0');
+}
+
+static void test_oled_pagination(void)
+{
+    /* 小屏词组整体移页，且每行都能在 128 像素视口内完整显示。 */
+    morse_entry_t entries[600] = {0};
+    for (size_t i = 0; i < 600; ++i) {
+        strcpy(entries[i].code, ".");
+        entries[i].decoded = 'E';
+        entries[i].word_end = true;
+    }
+    morse_t m = {.history = entries, .count = 600};
+    char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
+    assert(morse_history_lines(&m, 0, 5, 20, rows) == 120);
+    size_t seen = 0;
+    for (size_t page = 0; page < 120; ++page) {
+        assert(morse_history_lines(&m, page, 5, 20, rows) == 120);
+        for (size_t row = 0; row < 5; ++row) {
+            assert(!strcmp(rows[row], "> E ."));
+            ++seen;
+        }
+        assert(!rows[5][0]);
+    }
+    assert(seen == 600);
+    /* 实际 OLED 视口增加为六行后，全部记录仍恰好覆盖 100 页。 */
+    assert(morse_history_lines(&m, 0, 6, 20, rows) == 100);
+    seen = 0;
+    for (size_t page = 0; page < 100; ++page) {
+        assert(morse_history_lines(&m, page, 6, 20, rows) == 100);
+        for (size_t row = 0; row < 6; ++row) {
+            assert(!strcmp(rows[row], "> E ."));
+            ++seen;
+        }
+        assert(!rows[6][0]);
+    }
+    assert(seen == 600);
+    /* 第五组需要两行，完整移到下一页；延续行不丢字符。 */
+    m.count = 7;
+    for (size_t i = 0; i < 3; ++i) {
+        strcpy(entries[i].code, "-----");
+        entries[i].decoded = '0';
+        entries[i].word_end = i == 2;
+    }
+    assert(morse_history_lines(&m, 0, 5, 20, rows) == 2);
+    assert(!rows[4][0]);
+    assert(morse_history_lines(&m, 1, 5, 20, rows) == 2);
+    assert(strlen(rows[0]) == 20 && strlen(rows[1]) == 3);
+    char joined[2 * MORSE_HISTORY_COLS + 1];
+    strcpy(joined, rows[0]);
+    strcat(joined, rows[1]);
+    assert(!strcmp(joined, "> 000 ----- ----- -----"));
+    /* 超长词跨越所有页，遍历后所有解码字符与点划均保留。 */
+    m.count = 600;
+    for (size_t i = 0; i < 600; ++i) {
+        strcpy(entries[i].code, ".");
+        entries[i].decoded = 'E';
+        entries[i].word_end = i == 599;
+    }
+    size_t pages = morse_history_lines(&m, 0, 5, 20, rows);
+    size_t decoded = 0, dots = 0;
+    for (size_t page = 0; page < pages; ++page) {
+        morse_history_lines(&m, page, 5, 20, rows);
+        for (size_t row = 0; row < 5; ++row) {
+            assert(strlen(rows[row]) <= 20);
+            for (const char *c = rows[row]; *c; ++c) {
+                decoded += *c == 'E';
+                dots += *c == '.';
+            }
+        }
+    }
+    assert(decoded == 600 && dots == 600);
+}
+
+static void test_newest_first(void)
+{
+    morse_entry_t entries[] = {
+        {.code = ".-", .decoded = 'A'},
+        {.code = "-...", .decoded = 'B', .word_end = true},
+        {.code = "-.-.", .decoded = 'C', .word_end = true},
+        {.code = "-..", .decoded = 'D'},
+        {.code = ".", .decoded = 'E'},
+    };
+    morse_t m = {.history = entries, .count = 5};
+    char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1];
+    assert(morse_history_lines(&m, 0, 6, 20, rows) == 1);
+    assert(!strcmp(rows[0], "> E ."));
+    assert(!strcmp(rows[1], "> D -.."));
+    assert(!strcmp(rows[2], "> C -.-."));
+    assert(!strcmp(rows[3], "> AB .- -..."));
+    entries[4].word_end = true;
+    assert(morse_history_lines(&m, 0, 1, 20, rows) == 3);
+    assert(!strcmp(rows[0], "> DE -.. ."));
+    morse_history_lines(&m, 1, 1, 20, rows);
+    assert(!strcmp(rows[0], "> C -.-."));
+    morse_history_lines(&m, 2, 1, 20, rows);
+    assert(!strcmp(rows[0], "> AB .- -..."));
+    /* 历史保持原时间顺序，倒序只发生在显示排版。 */
+    assert(m.history[0].decoded == 'A' && m.history[4].decoded == 'E');
 }
 
 static void test_invalid_and_digits(void)
@@ -167,5 +265,7 @@ int main(void)
     test_history_pagination();
     test_compact_word_wrapping();
     test_invalid_and_digits();
-    puts("PASS: timing at all four speeds, HELLO WORLD, speed lock, invalid input, full-history pagination");
+    test_newest_first();
+    test_oled_pagination();
+    puts("PASS: timing at all four speeds, HELLO WORLD, speed lock, invalid input, full-history pagination at 10x37, 5x20 and 6x20, newest-first groups");
 }

@@ -12,8 +12,9 @@ static adc_oneshot_unit_handle_t adc_handle;
 static adc_channel_t adc_channel;
 static TaskHandle_t sample_task;
 static TickType_t sample_interval;
-static atomic_uint current_unit_ms = 200;
-static int current_band;
+/* 采样启动前先发布默认单位，启动后由旋钮实际位置接管。 */
+static atomic_uint current_unit_ms = INTERVAL_CONTROL_DEFAULT_UNIT_MS;
+static int current_band = 2;
 static const uint32_t units[] = {200, 150, 100, 60};
 
 uint32_t interval_control_get_unit_ms(void)
@@ -84,7 +85,7 @@ esp_err_t interval_control_start(int gpio_number, uint32_t sample_interval_ms)
     if (sample_interval == 0) {
         sample_interval = 1;
     }
-    /* 启动时读取实际档位；Wokwi 旋钮默认在最低端，对应 200 ms。 */
+    /* 启动时读取实际档位；Wokwi 旋钮默认位于第三档中部，对应 100 ms。 */
     int raw = 0;
     ret = adc_oneshot_read(adc_handle, adc_channel, &raw);
     if (ret != ESP_OK) {

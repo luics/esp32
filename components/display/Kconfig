@@ -1,19 +1,27 @@
-menu "ILI9341 显示屏配置"
+menu "显示屏配置"
+    config DISPLAY_WOKWI_SH1107
+        bool "Wokwi SH1107 128x128 OLED 替代屏"
+        default n
+        help
+            仿真 SSD1327 屏幕的分辨率与黑白布局，不模拟 16 级灰度或 SSD1327 协议。
+            使用 I2C，DISPLAY_SCLK_GPIO 为 SCL，DISPLAY_MOSI_GPIO 为 SDA；
+            不使用 CS/DC/RST。关闭时保留原 ILI9341 实板驱动。
+
     config DISPLAY_SCLK_GPIO
-        int "ILI9341 SPI 时钟 GPIO"
+        int "显示屏时钟 GPIO（SPI SCK / 仿真 I2C SCL）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 6
         help
-            ILI9341 的SPI 时钟引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+            显示屏时钟引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
     config DISPLAY_MOSI_GPIO
-        int "ILI9341 SPI 数据输出 GPIO"
+        int "显示屏数据 GPIO（SPI MOSI / 仿真 I2C SDA）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 7
         help
-            ILI9341 的SPI 数据输出引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+            显示屏数据引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
     config DISPLAY_CS_GPIO
         int "ILI9341 片选 GPIO"

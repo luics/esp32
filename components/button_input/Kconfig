@@ -1,6 +1,6 @@
 menu "按钮输入配置"
     config BUTTON_INPUT_GPIO
-        int "绿色划按钮 GPIO（低电平按下）"
+        int "绿色历史翻页按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 9
@@ -9,12 +9,13 @@ menu "按钮输入配置"
             驱动开启内部上拉并处理消抖。GPIO9 也是启动配置引脚，
             请在正常启动后按下，复位时保持松开。
     config BUTTON_INPUT_RED_GPIO
-        int "红色点按钮 GPIO（低电平按下）"
+        int "红色摩斯码按键 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 10
         help
             红色按钮连接此 GPIO 与 GND，内部上拉并使用软件消抖。
+            松开时按按住时长识别点划：不足3单位为点，达到3单位为划。
             引脚须与绿色按钮及灯珠数据引脚不同。
 
     config BUTTON_INPUT_BLUE_GPIO

@@ -78,13 +78,15 @@ void morse_end(morse_t *morse, uint64_t now_ms)
 typedef struct {
     char (*rows)[MORSE_HISTORY_COLS + 1];
     size_t page;
+    size_t row_count;
+    size_t columns;
     size_t line;
 } layout_t;
 
 static void push_line(layout_t *layout, const char *line)
 {
-    if (layout->line / MORSE_HISTORY_ROWS == layout->page) {
-        strcpy(layout->rows[layout->line % MORSE_HISTORY_ROWS], line);
+    if (layout->line / layout->row_count == layout->page) {
+        strcpy(layout->rows[layout->line % layout->row_count], line);
     }
     ++layout->line;
 }
@@ -93,7 +95,7 @@ static void append_text(layout_t *layout, char line[MORSE_HISTORY_COLS + 1], con
 {
     for (; *text; ++text) {
         size_t length = strlen(line);
-        if (length == MORSE_HISTORY_COLS) {
+        if (length == layout->columns) {
             push_line(layout, line);
             line[0] = '\0';
             length = 0;
@@ -104,29 +106,30 @@ static void append_text(layout_t *layout, char line[MORSE_HISTORY_COLS + 1], con
 }
 
 size_t morse_history_lines(const morse_t *morse, size_t page,
+                           size_t row_count, size_t columns,
                            char rows[MORSE_HISTORY_ROWS][MORSE_HISTORY_COLS + 1])
 {
     memset(rows, 0, MORSE_HISTORY_ROWS * sizeof(rows[0]));
-    layout_t layout = {.rows = rows, .page = page};
-    size_t completed = 0;
-    for (size_t i = 0; i < morse->count; ++i) {
-        if (morse->history[i].word_end) completed = i + 1;
-    }
-    size_t start = 0;
-    while (start < morse->count) {
-        size_t end = start;
-        while (start < completed && end < morse->count && !morse->history[end].word_end) ++end;
-        /* 只有确认了词边界，才把这一段字符合并为单词。 */
-        if (end == morse->count) end = start;
+    /* 屏幕尺寸只影响排版，不改变历史存储和字符/单词确认逻辑。 */
+    if (!row_count || row_count > MORSE_HISTORY_ROWS || !columns || columns > MORSE_HISTORY_COLS) return 1;
+    layout_t layout = {.rows = rows, .page = page, .row_count = row_count, .columns = columns};
+    size_t cursor = morse->count;
+    while (cursor) {
+        const size_t end = cursor - 1;
+        size_t start = end;
+        /* 最新组优先；已确认单词内仍按原输入顺序展示，未成词逐字符倒序。 */
+        if (morse->history[end].word_end) {
+            while (start && !morse->history[start - 1].word_end) --start;
+        }
         size_t code_length = end - start;
         for (size_t i = start; i <= end; ++i) code_length += strlen(morse->history[i].code);
         /* 每组紧凑显示为 "> 解码文本 摩斯码"，统一计算换行与分页占用。 */
         const size_t group_length = 3 + (end - start + 1) + code_length;
-        const size_t group_lines = (group_length + MORSE_HISTORY_COLS - 1) / MORSE_HISTORY_COLS;
-        const size_t used = layout.line % MORSE_HISTORY_ROWS;
+        const size_t group_lines = (group_length + columns - 1) / columns;
+        const size_t used = layout.line % row_count;
         /* 一页容得下的单词不跨页；超长词才逐行延续。 */
-        if (used && group_lines <= MORSE_HISTORY_ROWS && used + group_lines > MORSE_HISTORY_ROWS) {
-            while (layout.line % MORSE_HISTORY_ROWS) push_line(&layout, "");
+        if (used && group_lines <= row_count && used + group_lines > row_count) {
+            while (layout.line % row_count) push_line(&layout, "");
         }
         char line[MORSE_HISTORY_COLS + 1] = "";
         append_text(&layout, line, "> ");
@@ -140,8 +143,8 @@ size_t morse_history_lines(const morse_t *morse, size_t page,
             append_text(&layout, line, morse->history[i].code);
         }
         if (line[0]) push_line(&layout, line);
-        start = end + 1;
+        cursor = start;
     }
-    const size_t pages = (layout.line + MORSE_HISTORY_ROWS - 1) / MORSE_HISTORY_ROWS;
+    const size_t pages = (layout.line + row_count - 1) / row_count;
     return pages ? pages : 1;
 }

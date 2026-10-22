@@ -1,2 +1,4 @@
 # 叠加在 sdkconfig.defaults 后，只供 Wokwi 独立构建使用。
 CONFIG_BLINK_LED_ORDER_GRB=y
+# 128x128 黑白 OLED 近似 SSD1327；仅仿真构建启用。
+CONFIG_DISPLAY_WOKWI_SH1107=y
