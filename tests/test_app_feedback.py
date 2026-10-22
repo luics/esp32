@@ -25,6 +25,8 @@ static inline void test_log(const char *tag, const char *format, ...) { (void)ta
 #define CONFIG_BUTTON_INPUT_RED_GPIO 10
 #define CONFIG_BUTTON_INPUT_GPIO 9
 #define CONFIG_BUTTON_INPUT_BLUE_GPIO 11
+#define CONFIG_BUTTON_INPUT_BLACK_GPIO 0
+#define CONFIG_BUTTON_INPUT_MODE_GPIO 1
 #define CONFIG_DISPLAY_SCLK_GPIO 6
 #define CONFIG_DISPLAY_MOSI_GPIO 7
 #define CONFIG_DISPLAY_CS_GPIO 18
@@ -66,14 +68,15 @@ void app_main(void);
 struct test_queue { size_t size; unsigned head, count; unsigned char items[64][64]; };
 static QueueHandle_t queue;
 static uint64_t clock_ms;
-static bool sound, light;
+static bool sound, light, startup_checked;
 static unsigned starts, stops;
 static unsigned task_priority = 1;
-static uint64_t started_at, durations[14];
+static uint64_t started_at, durations[14], start_times[14];
+static blink_color_t last_color;
 static display_frame_t last_frame;
-static button_input_edge_callback_t red_edge;
-static button_input_callback_t green_press;
-static void *red_context, *green_context;
+static button_input_edge_callback_t red_edge, black_edge;
+static button_input_callback_t green_press, mode_press;
+static void *red_context, *green_context, *black_context, *mode_context;
 static jmp_buf done;
 
 QueueHandle_t xQueueCreate(unsigned count, size_t size) {
@@ -98,11 +101,11 @@ int64_t esp_timer_get_time(void){return (int64_t)clock_ms*1000;}
 const char *esp_err_to_name(esp_err_t code){(void)code;return "test";}
 void esp_restart(void){assert(!"Unexpected restart");}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
-esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handle;(void)color;light=true;return ESP_OK;}
+esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handle;last_color=color;light=true;return ESP_OK;}
 esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
 esp_err_t beep_init(int gpio,uint32_t hz){assert(gpio==3 && hz==2000);return ESP_OK;}
 esp_err_t beep_set_active(bool active){
-    if(active){assert(!sound && starts<14);started_at=clock_ms;++starts;}
+    if(active){assert(!sound && starts<14);started_at=clock_ms;start_times[starts++]=clock_ms;}
     else if(sound){durations[stops++]=clock_ms-started_at;}
     sound=active;return ESP_OK;
 }
@@ -111,13 +114,55 @@ uint32_t interval_control_get_unit_ms(void){return clock_ms>=400 ? 60 : 100;}
 esp_err_t display_init(const display_config_t *config,display_handle_t *handle){(void)config;*handle=(void*)1;return ESP_OK;}
 esp_err_t display_show_frame(display_handle_t handle,const display_frame_t *frame){(void)handle;last_frame=*frame;return ESP_OK;}
 esp_err_t button_input_create_edges(int gpio,button_input_edge_callback_t callback,void *ctx,button_input_handle_t *handle){
-    assert(gpio==10);red_edge=callback;red_context=ctx;*handle=(void*)1;return ESP_OK;
-}
-esp_err_t button_input_create(int gpio,button_input_callback_t callback,void *ctx,button_input_handle_t *handle){
-    if(gpio==9){green_press=callback;green_context=ctx;}else assert(gpio==11);
+    if(gpio==10){red_edge=callback;red_context=ctx;}
+    else {assert(gpio==0);black_edge=callback;black_context=ctx;}
     *handle=(void*)1;return ESP_OK;
 }
+esp_err_t button_input_create(int gpio,button_input_callback_t callback,void *ctx,button_input_handle_t *handle){
+    if(gpio==9){green_press=callback;green_context=ctx;}
+    else if(gpio==1){mode_press=callback;mode_context=ctx;}else assert(gpio==11);
+    *handle=(void*)1;return ESP_OK;
+}
+static void dual_step(TickType_t ticks){
+    /* 在真实 app_main 中验证快速点击 FIFO、标准声光、长按重复与活动信号内切换。 */
+    if(clock_ms<2660)assert(last_frame.dual_mode);
+    if(clock_ms>=2660 && clock_ms<2900)assert(!last_frame.dual_mode);
+    if(clock_ms>=2900 && clock_ms<2980)assert(last_frame.dual_mode);
+    if(clock_ms>=2980)assert(!last_frame.dual_mode);
+    if(clock_ms==40)assert(sound && light && last_color==BLINK_COLOR_RED);
+    if(clock_ms==230 || clock_ms==2500)assert(sound && last_color==BLINK_COLOR_GREEN);
+    if(clock_ms==1900)assert(last_frame.word_ready);
+    if(clock_ms>=3650){
+        const uint64_t expected_starts[]={30,230,630,900,1100,2000,2240,2480,2800,2920,3140};
+        const uint64_t expected_durations[]={100,300,100,100,100,180,180,180,30,60,20};
+        assert(starts==11 && stops==11 && !sound && !light && last_frame.word_ready);
+        for(unsigned i=0;i<11;++i){
+            assert(start_times[i]==expected_starts[i]);
+            assert(durations[i]==expected_durations[i]);
+        }
+        longjmp(done,1);
+    }
+    for(uint64_t until=clock_ms+ticks;clock_ms<until;){
+        ++clock_ms;
+        switch(clock_ms){
+            case 2500:case 2900:case 2940:mode_press(mode_context);break;
+            case 30:case 70:case 900:case 2520:case 2800:case 2920:case 3140:red_edge(true,red_context);break;
+            case 40:case 80:case 1150:case 2530:case 2830:case 3100:case 3160:red_edge(false,red_context);break;
+            case 50:case 2000:case 2850:case 3010:black_edge(true,black_context);break;
+            case 60:case 2640:case 2860:case 3020:black_edge(false,black_context);break;
+            case 400:green_press(green_context);break;
+        }
+    }
+}
 void vTaskDelay(TickType_t ticks){
+    if(!startup_checked){
+        assert(clock_ms==0 && last_frame.dual_mode);
+        startup_checked=true;
+        /* 单键回归必须通过真实灰键从默认双键模式切入，不修改应用状态。 */
+        if(!getenv("TEST_DUAL_MODE")){mode_press(mode_context);return;}
+    }
+    if(getenv("TEST_DUAL_MODE")){dual_step(ticks);return;}
+    assert(!last_frame.dual_mode);
     /* 检查真实主循环在本轮处理边沿后的输出；不模拟或复述输入处理分支。 */
     if(clock_ms==20 || clock_ms==100 || clock_ms==350)assert(sound && light);
     if(clock_ms==50 || clock_ms==300 || (clock_ms>=850 && clock_ms<1040) || (clock_ms>=1440 && clock_ms<2200) || clock_ms>=2700)assert(!sound && !light);
@@ -159,6 +204,7 @@ void vTaskDelay(TickType_t ticks){
 int main(void){
     if(!setjmp(done))app_main();
     free(queue);
+    if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
 }
 '''
@@ -171,14 +217,17 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
         header.parent.mkdir(parents=True, exist_ok=True)
         header.write_text('#include "test_sdk.h"\n')
     (work / "harness.c").write_text(HARNESS)
-    includes = [work, ROOT / "main"]
+    includes = [work]
     includes += [ROOT / "components" / name / "include"
-                 for name in ("blink", "beep", "display", "button_input", "interval_control")]
+                 for name in ("blink", "beep", "display", "button_input", "interval_control",
+                              "morse", "telegraph", "telegraph_app")]
     command = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined"]
     for include in includes:
         command += ["-I", str(include)]
-    command += [str(work / "harness.c"), str(ROOT / "main/app_main.c"), str(ROOT / "main/morse.c"),
-                str(ROOT / "main/telegraph.c"), "-o", str(work / "test")]
+    command += [str(work / "harness.c"), str(ROOT / "main/app_main.c"),
+                str(ROOT / "components/telegraph_app/telegraph_app.c"), str(ROOT / "components/morse/morse.c"),
+                str(ROOT / "components/telegraph/telegraph.c"), str(ROOT / "components/telegraph/keyer.c"), "-o", str(work / "test")]
     subprocess.run(command, check=True)
     subprocess.run([str(work / "test")], check=True)
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_RENDER_LOAD": "1"})
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DUAL_MODE": "1"})

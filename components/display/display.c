@@ -105,7 +105,7 @@ static void draw_history_status(struct display *display, int top, int y, int mar
     snprintf(label, sizeof(label), "%u/%u", frame->page ? frame->page : 1,
              frame->pages ? frame->pages : 1);
     draw_text(display, top, margin, y, label, 1);
-    snprintf(label, sizeof(label), "IN %luMS", (unsigned long)frame->character_unit_ms);
+    snprintf(label, sizeof(label), "%c %luMS", frame->dual_mode ? 'D' : 'S', (unsigned long)frame->character_unit_ms);
     draw_text(display, top, WIDTH - margin - (int)strlen(label) * 6 + 1, y, label, 1);
 }
 
@@ -204,7 +204,7 @@ static void display_worker(void *context)
 {
     struct display *display = context;
     display_frame_t frame = {
-        .selected_unit_ms = 100, .character_unit_ms = 100, .word_ready = true,
+        .selected_unit_ms = 100, .character_unit_ms = 100, .word_ready = true, .dual_mode = true,
     };
     bool visible = true;
     while (true) {

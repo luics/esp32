@@ -28,6 +28,7 @@ typedef struct {
     uint32_t character_unit_ms;
     /* 新词可开始：初始显示，按住及词内静默时隐藏。 */
     bool word_ready;
+    bool dual_mode;
     char current_code[10];
     char decoded;
     unsigned page;

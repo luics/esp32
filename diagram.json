@@ -4,14 +4,16 @@
   "editor": "wokwi",
   "parts": [
     {"type": "board-esp32-c6-devkitc-1", "id": "esp", "top": 160, "left": 430, "attrs": {}},
-    {"type": "wokwi-neopixel", "id": "rgb", "top": 320, "left": 68, "attrs": {}},
+    {"type": "wokwi-neopixel", "id": "rgb", "top": 350, "left": 20, "attrs": {}},
     {"type": "wokwi-text", "id": "note", "top": -70, "left": 0, "attrs": {"text": "摩斯码电报机"}},
-    {"type": "wokwi-text", "id": "rgb_label", "top": 380, "left": 20, "attrs": {"text": "点/划指示灯"}},
-    {"type": "wokwi-pushbutton", "id": "button_red", "top": 220, "left": 45, "attrs": {"color": "red", "label": "点/划", "key": "R"}},
-    {"type": "wokwi-pushbutton", "id": "button", "top": 230, "left": 300, "attrs": {"color": "green", "label": "历史翻页", "key": "G"}},
+    {"type": "wokwi-text", "id": "rgb_label", "top": 385, "left": 0, "attrs": {"text": "点/划"}},
+    {"type": "wokwi-pushbutton", "id": "button_red", "top": 220, "left": 0, "attrs": {"color": "red", "label": "点/划", "key": "R"}},
+    {"type": "wokwi-pushbutton", "id": "button_black", "top": 220, "left": 60, "attrs": {"color": "black", "label": "划", "key": "D"}},
+    {"type": "wokwi-pushbutton", "id": "button_gray", "top": 320, "left": 60, "attrs": {"color": "gray", "label": "模式", "key": "M"}},
+    {"type": "wokwi-pushbutton", "id": "button", "top": 220, "left": 300, "attrs": {"color": "green", "label": "历史翻页", "key": "G"}},
     {"type": "wokwi-pushbutton", "id": "button_blue", "top": 320, "left": 300, "attrs": {"color": "blue", "label": "复位", "key": "B"}},
     {"type": "wokwi-buzzer", "id": "buzzer", "top": 0, "left": 430, "attrs": {"volume": "1.0"}},
-    {"type": "wokwi-text", "id": "buzzer_label", "top": -38, "left": 425, "attrs": {"text": "摩斯码音调"}},
+    {"type": "wokwi-text", "id": "buzzer_label", "top": -38, "left": 440, "attrs": {"text": "音调"}},
     {"type": "wokwi-potentiometer", "id": "interval_pot", "top": 0, "left": 300, "attrs": {"value": "640"}},
     {"type": "wokwi-text", "id": "interval_label", "top": -38, "left": 300, "attrs": {"text": "间隔单位"}},
     {"type": "board-grove-oled-sh1107", "id": "screen", "top": 0, "left": 0, "attrs": {}},
@@ -19,14 +21,14 @@
     {"type": "wokwi-text", "id": "board_label", "top": 390, "left": 430, "attrs": {"text": "ESP32-C6 · USB"}}
   ],
   "connections": [
-    ["esp:8", "rgb:DIN", "green", ["h-26", "*", "v62", "h20"]],
-    ["esp:5V", "rgb:VDD", "red", ["h-366.6"]],
-    ["esp:GND.1", "rgb:VSS", "black", ["h-24", "*", "v42", "h32"]],
-    ["esp:10", "button_red:1.r", "red", ["h-14", "*", "h18"]],
+    ["esp:8", "rgb:DIN", "green", ["h-350", "*", "h20"]],
+    ["esp:5V", "rgb:VDD", "red", ["h-414.6"]],
+    ["rgb:VSS", "button_gray:2.l", "black", ["h10"]],
+    ["esp:10", "button_red:1.l", "red", ["h-14", "*", "h-14"]],
     ["esp:9", "button:1.r", "green", ["h30", "v-150.4", "*", "h40"]],
     ["esp:11", "button_blue:1.r", "blue", ["*", "h18"]],
     ["button_blue:2.r", "button:2.r", "black", ["h28", "*", "h28"]],
-    ["button_red:2.r", "button:2.r", "black", ["h28", "*", "v30", "h18"]],
+    ["button_red:2.l", "button:2.r", "black", ["h-24", "*", "v30", "h18"]],
     ["button:2.r", "esp:GND.1", "black", ["h18", "*", "h-24"]],
     ["esp:3", "buzzer:2", "orange", ["h-40", "*", "v16"]],
     ["buzzer:1", "esp:GND.1", "black", ["v28", "*", "h-52"]],
@@ -36,6 +38,10 @@
     ["esp:6", "screen:SCL", "blue", ["h-8", "v-30", "*", "h22"]],
     ["esp:7", "screen:SDA", "green", ["h-16", "v-46", "*", "h34"]],
     ["esp:3V3", "screen:VCC", "red", ["*", "h46"]],
-    ["esp:GND.2", "screen:GND", "black", ["h42", "*", "v65", "h42"]]
+    ["esp:GND.2", "screen:GND", "black", ["h42", "*", "v65", "h42"]],
+    ["esp:0", "button_black:1.r", "gray", ["h-20", "v-65", "*", "h18"]],
+    ["esp:1", "button_gray:1.r", "gray", ["h-34", "v-65", "*", "h30"]],
+    ["button_black:2.l", "button_red:2.r", "black", []],
+    ["button_gray:2.l", "button_black:2.l", "black", []]
   ]
 }
