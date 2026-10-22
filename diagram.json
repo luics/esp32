@@ -13,7 +13,7 @@
     {"type": "wokwi-buzzer", "id": "buzzer", "top": 365, "left": 145, "attrs": {"volume": "1.0"}},
     {"type": "wokwi-text", "id": "buzzer_label", "top": 520, "left": 150, "attrs": {"text": "摩斯码音调 · GPIO3"}},
     {"type": "wokwi-potentiometer", "id": "interval_pot", "top": 365, "left": 0, "attrs": {"value": "0"}},
-    {"type": "wokwi-text", "id": "interval_label", "top": 485, "left": 0, "attrs": {"text": "Interval control · GPIO4"}},
+    {"type": "wokwi-text", "id": "interval_label", "top": 485, "left": 0, "attrs": {"text": "间隔单位 · GPIO4"}},
     {"type": "wokwi-ili9341", "id": "screen", "top": -20, "left": 450, "attrs": {"label": "输入 / 历史 · SPI2"}},
     {"type": "wokwi-text", "id": "screen_label", "top": 330, "left": 450, "attrs": {"text": "输入 / 历史 · SPI2\nSCK GPIO6 / MOSI GPIO7\nCS GPIO18 / DC GPIO19"}},
     {"type": "wokwi-text", "id": "board_label", "top": -40, "left": 220, "attrs": {"text": "电报控制器 · USB"}}

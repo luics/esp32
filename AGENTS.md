@@ -6,24 +6,72 @@ repository when they override this baseline.
 
 ## 当前项目：摩斯码电报机（微雪 ESP32-C6-Zero）
 
-- 环境：ESP-IDF v6.1，EIM 环境 `stable-mcp`，target `esp32c6`，Flash 8 MB。
-- 红 GPIO10 发送点（1 单位红光及声音），绿 GPIO9/BOOT 发送划（3 单位绿光及声音）；
-  蓝 GPIO11 复位，先关闭声光后 esp_restart，复用 app_main 初始化；长按跨重启等待松开再使能，复位时松开 BOOT。按钮长按不重复，FIFO 排队保留点击，最少静默 1 单位。
-- GPIO4 电位器由 `interval_control` 组件读取，从低到高选择 200（默认）/150/100/60 ms。
-  新档位从下一个字符生效；静默从声光结束起算，3 单位确认字符、7 单位确认词。
-- WS2812 GPIO8：实板 RGB，Wokwi 独立固件 GRB。蜂鸣器 GPIO3、2 kHz，LEDC timer0/channel0。
-- ILI9341 白底黑字，上部当前点划/候选解码，下部历史；确认的词成组，未成词按字符分组。
-  全部历史存 RAM，断电清空，底部每 4 秒自动轮播，输入中的字符不进历史。
-  SPI2 独占，SCK/MOSI/CS/DC/RST = GPIO6/7/18/19/20，Wokwi 不接 RST。
-- 配置默认值见 `sdkconfig.defaults`，接口见各组件 README，详细操作与验证见 [README.md](README.md)。
-  `volume_control` 和蜂鸣器固定时长配置已移除；蓝键使用 `CONFIG_BUTTON_INPUT_BLUE_GPIO`。
-- 构建（修改配置后的重新配置授权规则见下文）：
-  `eim run "idf.py reconfigure build" stable-mcp`；仿真：
-  `eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp`。
-  实板 `build/`/根 sdkconfig 与仿真 `build-wokwi/` 独立。保留 UART/USB Serial-JTAG 日志。
-- Wokwi 标题为“摩斯码电报机”，功能标签使用“功能 · port”；R/G/B 为点/划/复位快捷键。
-  验证须观察红/绿灯、声音与屏幕输入、解码、分组、历史轮播，不能仅检查启动日志。
-  替代模型不复现完整 Zero 硬件；实板烧录仍需用户授权。
+项目说明与开发规范统一维护在本文件。根目录 `README.md` 仅保留本文件引用及维护提示，
+不要在其中添加其他内容；组件接口仍维护在各组件 README。
+环境：ESP-IDF v6.1，EIM 环境 `stable-mcp`，target `esp32c6`，Flash 8 MB。
+配置默认值见 `sdkconfig.defaults`；`volume_control` 和蜂鸣器固定时长配置已移除。
+
+### 操作与接线
+
+| 功能 | 端口与行为 |
+|---|---|
+| 点按钮（红） | GPIO10 ↔ GND；按下发送 `.`，红光及声音持续 1 单位 |
+| 划按钮（绿 / BOOT） | GPIO9 ↔ GND；按下发送 `-`，绿光及声音持续 3 单位 |
+| 复位按钮（蓝） | GPIO11 ↔ GND；配置项 `CONFIG_BUTTON_INPUT_BLUE_GPIO` |
+| WS2812 DIN | GPIO8；实板 RGB，Wokwi 独立固件 GRB |
+| 无源低电流压电蜂鸣器 | 正极 GPIO3，负极 GND；2 kHz，独占 LEDC 低速 timer0/channel0 |
+| 间隔电位器 | 两端 3V3 / GND，滑臂 GPIO4 / ADC1 CH4；由 `interval_control` 读取 |
+| ILI9341 SCK / MOSI / CS / DC / RST | GPIO6 / 7 / 18 / 19 / 20；独占 SPI2，Wokwi 不接 RST |
+
+- 间隔单位从旋钮低到高为 200（默认）/150/100/60 ms，切档带迟滞；上电读取实际位置。
+  当前字符的单位保持不变，新档位从下一个字符生效。
+- 按钮长按不重复；快速点击按 FIFO 排队，最多等待 32 个点划，满队列拒绝新点击并告警。
+  相邻信号至少静默 1 单位；静默从声光结束起算，3 单位确认字符、7 单位确认词，间隔不叠加。
+  同一字符的后续点划须在前一信号结束后 3 单位内点击。
+- 蓝键不经过点划 FIFO：先关闭声光，再 `esp_restart()`，复用 `app_main()` 初始化，
+  清空输入、队列与历史，重新读取旋钮并开始节拍。长按跨重启等待松开再使能，避免循环重启；复位时松开 BOOT。
+- Wokwi 使用 DevKitC-1 与独立 NeoPixel 替代 Zero 板载硬件，不复现完整实板。
+  标题为“摩斯码电报机”，功能标签使用“功能 · port”；R/G/B 为点/划/复位快捷键。
+  保留 UART/USB Serial-JTAG 日志；板上常亮红色电源灯与 WS2812 信号灯不同。
+
+### 屏幕与历史
+
+- ILI9341 240×320 始终白底黑字；上方显示档位、当前字符单位、输入点划与候选解码。
+  右上角小黑点按当前档位显示 3 单位、隐藏 3 单位。
+- 支持 A–Z、0–9 及常用标点；未知编码显示 `?`，超过 8 个点划显示 `INVALID`。
+  候选解码随输入变化，静默满 3 单位才提交历史；输入中的字符不进历史。
+- 底部每组格式为 `> {字符或单词} {摩斯码}`，例如 `> HI .... ..`。
+  静默满 7 单位后按词合并，未成词按字符分组；普通词尽量不跨页，超长词换行续页。
+  新增历史先显示最新页，随后每 4 秒循环翻页，覆盖本次开机全部历史。
+- 全部历史动态存 RAM，断电清空；确认字符时输出串口日志。RAM 耗尽时报告错误并停止，不静默丢弃旧历史。
+
+### 构建与验证
+
+修改 Kconfig/defaults 后先取得重新配置授权（详见下文），再执行实板与仿真构建：
+
+```sh
+eim run "idf.py reconfigure build" stable-mcp
+eim run "bash tools/build_wokwi.sh reconfigure build" stable-mcp
+```
+
+实板使用根 `sdkconfig` 与 `build/`，仿真配置与产物在 `build-wokwi/`，互不覆盖。
+VS Code 运行 **Wokwi: Start Simulator**，旋钮默认最低档 200 ms。
+主机逻辑测试：
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -I main main/morse.c tests/test_morse.c -o /tmp/esp32-test-morse
+/tmp/esp32-test-morse
+```
+
+仿真须观察灯光、声音与屏幕，不能仅检查启动日志：
+
+- 确认白底黑字、上电灭灯静音、四档速度与节拍；R/G 产生 1/3 单位红/绿光及同步声音，长按不重复、快速点击不截断。
+- 输入 `.... . .-.. .-.. --- / .-- --- .-. .-.. -..` 得到 HELLO WORLD；检查 3/7 单位提交、
+  当前输入不进历史、字符/词分组及多页循环翻页。
+- 蓝键在空闲、发声、队列积压时均能关闭声光并复位；历史归零、旋钮档位恢复、节拍继续。
+  长按跨重启只重启一次，松开再按可再次复位。
+
+实板烧录需用户明确授权端口和设备，详见下文 Validation。
 
 ## Discover the Project First
 
