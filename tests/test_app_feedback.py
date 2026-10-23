@@ -60,6 +60,7 @@ HARNESS = r'''
 #include "display.h"
 #include "button_input.h"
 #include "interval_control.h"
+#include "telegraph_sync.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -102,6 +103,8 @@ int64_t esp_timer_get_time(void){return (int64_t)clock_ms*1000;}
 const char *esp_err_to_name(esp_err_t code){(void)code;return "test";}
 void esp_restart(void){assert(!"Unexpected restart");}
 uint32_t esp_random(void){static unsigned index; const uint32_t values[]={0,26,35}; assert(index<3); return values[index++];}
+esp_err_t telegraph_sync_start(const char label[4]){assert(!strcmp(label,"A09"));return ESP_OK;}
+esp_err_t telegraph_sync_history(const morse_t *morse){assert(morse->count);return ESP_OK;}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
 esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handle;last_color=color;light=true;return ESP_OK;}
 esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
@@ -222,7 +225,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     includes = [work]
     includes += [ROOT / "components" / name / "include"
                  for name in ("blink", "beep", "display", "button_input", "interval_control",
-                              "morse", "telegraph", "telegraph_app")]
+                              "morse", "telegraph", "telegraph_app", "telegraph_sync")]
     command = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined"]
     for include in includes:
         command += ["-I", str(include)]

@@ -9,6 +9,8 @@
 应用任务优先级为 3，高于显示任务的 2；按钮回调只投递事件或复位通知，声光由应用任务串行控制。
 单键声光跟随按住时间；双键由 `telegraph` 决定标准发送状态，实际关声后校正静默起点。
 显示组件只接收快照，解码/历史归属 `morse`，输入模式/发送状态归属 `telegraph`。
+历史变更时将快照交给 `telegraph_sync`，按词异步 POST/PATCH，三个字段始终包含 `morse`、`content`、本次开机的 `label`。
+联网与错误重试不在输入主循环执行；Wi-Fi 配置、UUID 归属及失败处理见 [telegraph_sync](../telegraph_sync/README.md)。
 
 依赖全部通过 `PRIV_REQUIRES` 声明；公共接口不暴露外设或 FreeRTOS 类型。
 GPIO 及显示配置沿用现有 `CONFIG_*`，初始化与运行错误沿用 `ESP_ERROR_CHECK` 处理。

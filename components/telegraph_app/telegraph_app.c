@@ -10,6 +10,7 @@
 #include "interval_control.h"
 #include "morse.h"
 #include "keyer.h"
+#include "telegraph_sync.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -193,6 +194,7 @@ void telegraph_app_run(void)
     for (size_t i = 0; i < sizeof(label) - 1; ++i) {
         label[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
     }
+    ESP_ERROR_CHECK(telegraph_sync_start(label));
     size_t page = 0;
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
@@ -257,6 +259,8 @@ void telegraph_app_run(void)
         const size_t after = telegraph->morse.count;
         const bool next_word_end = after && telegraph->morse.history[after - 1].word_end;
         if (before != after || last_word_end != next_word_end) {
+            /* 仅提交已确认历史快照；联网与重试由独立低优先级任务处理。 */
+            ESP_ERROR_CHECK(telegraph_sync_history(&telegraph->morse));
             /* 新记录/词分组回到最新页；其余时间仅由绿键翻页，不再自动轮播。 */
             page = 0;
             changed = true;

@@ -19,6 +19,8 @@ cases = [
     ("keyer", [MORSE / "include", TELEGRAPH / "include"],
      [MORSE / "morse.c", TELEGRAPH / "telegraph.c", TELEGRAPH / "keyer.c"]),
     ("sh1107_pixels", [COMPONENTS / "display"], []),
+    ("sync_outbox", [MORSE / "include", COMPONENTS / "telegraph_sync"],
+     [MORSE / "morse.c", COMPONENTS / "telegraph_sync/sync_outbox.c"]),
 ]
 
 with tempfile.TemporaryDirectory(prefix="esp32-host-tests-") as directory:
@@ -34,3 +36,8 @@ with tempfile.TemporaryDirectory(prefix="esp32-host-tests-") as directory:
         subprocess.run([str(binary)], check=True)
 
 subprocess.run([sys.executable, str(ROOT / "tests/test_app_feedback.py")], check=True)
+subprocess.run([sys.executable, str(ROOT / "tests/test_sync_http.py")], check=True)
+
+subprocess.run([sys.executable, str(ROOT / "tests/test_sync_tls_timing.py")], check=True)
+
+subprocess.run([sys.executable, str(ROOT / "tests/test_sync_verify_cache.py")], check=True)
