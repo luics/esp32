@@ -51,6 +51,7 @@ int gpio_get_level(int gpio);
 int64_t esp_timer_get_time(void);
 const char *esp_err_to_name(esp_err_t code);
 void esp_restart(void);
+uint32_t esp_random(void);
 '''
 HARNESS = r'''
 #include "test_sdk.h"
@@ -100,6 +101,7 @@ int gpio_get_level(int gpio){(void)gpio;return 1;}
 int64_t esp_timer_get_time(void){return (int64_t)clock_ms*1000;}
 const char *esp_err_to_name(esp_err_t code){(void)code;return "test";}
 void esp_restart(void){assert(!"Unexpected restart");}
+uint32_t esp_random(void){static unsigned index; const uint32_t values[]={0,26,35}; assert(index<3); return values[index++];}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
 esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handle;last_color=color;light=true;return ESP_OK;}
 esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
@@ -112,7 +114,7 @@ esp_err_t beep_set_active(bool active){
 esp_err_t interval_control_start(int gpio,uint32_t interval){assert(gpio==4 && interval==50);return ESP_OK;}
 uint32_t interval_control_get_unit_ms(void){return clock_ms>=400 ? 60 : 100;}
 esp_err_t display_init(const display_config_t *config,display_handle_t *handle){(void)config;*handle=(void*)1;return ESP_OK;}
-esp_err_t display_show_frame(display_handle_t handle,const display_frame_t *frame){(void)handle;last_frame=*frame;return ESP_OK;}
+esp_err_t display_show_frame(display_handle_t handle,const display_frame_t *frame){(void)handle;assert(!strcmp(frame->label,"A09"));last_frame=*frame;return ESP_OK;}
 esp_err_t button_input_create_edges(int gpio,button_input_edge_callback_t callback,void *ctx,button_input_handle_t *handle){
     if(gpio==10){red_edge=callback;red_context=ctx;}
     else {assert(gpio==0);black_edge=callback;black_context=ctx;}
@@ -211,7 +213,7 @@ int main(void){
 with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     work = Path(directory)
     (work / "test_sdk.h").write_text(SDK)
-    for name in ("driver/gpio.h", "esp_err.h", "esp_log.h", "esp_timer.h", "esp_system.h",
+    for name in ("driver/gpio.h", "esp_err.h", "esp_log.h", "esp_timer.h", "esp_system.h", "esp_random.h",
                  "freertos/FreeRTOS.h", "freertos/queue.h", "freertos/task.h", "sdkconfig.h"):
         header = work / name
         header.parent.mkdir(parents=True, exist_ok=True)

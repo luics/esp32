@@ -101,9 +101,10 @@ static void draw_history_status(struct display *display, int top, int y, int mar
                                 const display_frame_t *frame)
 {
     char label[32];
-    /* 页码与字符锁定单位固定在屏幕底部，两端对齐，为历史内容留出空间。 */
-    snprintf(label, sizeof(label), "%u/%u", frame->page ? frame->page : 1,
-             frame->pages ? frame->pages : 1);
+    /* 页码右侧显示开机标签，字符锁定单位仍在底栏右端。 */
+    snprintf(label, sizeof(label), "%u/%u%s%.3s", frame->page ? frame->page : 1,
+             frame->pages ? frame->pages : 1, frame->label[0] ? " " : "",
+             frame->label);
     draw_text(display, top, margin, y, label, 1);
     snprintf(label, sizeof(label), "%c %luMS", frame->dual_mode ? 'D' : 'S', (unsigned long)frame->character_unit_ms);
     draw_text(display, top, WIDTH - margin - (int)strlen(label) * 6 + 1, y, label, 1);

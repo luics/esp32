@@ -33,6 +33,7 @@ typedef struct {
     char decoded;
     unsigned page;
     unsigned pages;
+    char label[4]; /* 本次开机标签：三个大写字母或数字，以 NUL 结尾。 */
     unsigned characters;
     char history[10][38];
 } display_frame_t;

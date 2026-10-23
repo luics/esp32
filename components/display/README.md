@@ -14,7 +14,8 @@ ILI9341 用 16 行 DMA 缓冲；SH1107 共用文字渲染，转为 2048 字节�
 
 `display_frame_t` 包含当前档位、字符锁定单位、新词指示 `word_ready`、模式 `dual_mode`、输入中的点划及候选字符、历史页码和 10 行历史。
 上部显示当前输入，底部 y=145 起为固定历史区域；每行最多 37 个 ASCII 字符，历史格式为 `> {字符或单词} {摩斯码}`，超宽自动换行。
-不显示 SET 行；状态行固定在屏幕底部，左侧页码 `x/x`，右侧 `S xxxMS` / `D xxxMS`（单键 / 双键模式；ILI9341 y=309，SH1107 y=117）。
+不显示 SET 行；状态行固定在屏幕底部，左侧页码和标签 `x/x ABC`，右侧 `S xxxMS` / `D xxxMS`（单键 / 双键模式；ILI9341 y=309，SH1107 y=117）。
+快照字段 `label[4]` 保存三个大写字母或数字及结尾 NUL；空标签不显示额外空格。
 SH1107 历史内容从 y=55 开始，每页 6 行、每行 20 字符；`DISPLAY_HISTORY_ROWS/COLS` 提供当前视口尺寸，
 应用将它们传给 `morse_history_lines`，在分页时处理换行，保证超宽和超长词可完整分页浏览。
 字体由 `tools/generate_display_font.py` 生成：字母数字采用手工等宽点阵，其余符号来自 Noto Sans CJK SC，许可见 `fonts/NOTICE.md`。

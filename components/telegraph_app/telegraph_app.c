@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -119,11 +120,12 @@ static void restart_if_requested(blink_handle_t led)
 }
 
 static void show_state(display_handle_t screen, const keyer_t *keyer,
-                       uint32_t selected, size_t page, display_frame_t *frame)
+                       uint32_t selected, size_t page, const char label[4], display_frame_t *frame)
 {
     const telegraph_t *telegraph = &keyer->telegraph;
     const morse_t *morse = &telegraph->morse;
     memset(frame, 0, sizeof(*frame));
+    memcpy(frame->label, label, sizeof(frame->label));
     frame->selected_unit_ms = selected;
     frame->dual_mode = keyer->dual_mode;
     /* 复用解码器的七单位词边界，按住时即使旧词已结束也立即隐藏。 */
@@ -185,12 +187,18 @@ void telegraph_app_run(void)
     keyer_t keyer = {.dual_mode = true, .target_dual = true};
     telegraph_t *telegraph = &keyer.telegraph;
     display_frame_t frame;
+    /* 每次启动生成一次标签；翻页、换档及模式切换均沿用同一标签。 */
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    char label[4] = {0};
+    for (size_t i = 0; i < sizeof(label) - 1; ++i) {
+        label[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    }
     size_t page = 0;
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
     bool wait_keys_release = false;
     uint32_t selected = interval_control_get_unit_ms();
-    show_state(screen, &keyer, selected, page, &frame);
+    show_state(screen, &keyer, selected, page, label, &frame);
     ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; red=input, black=dash, gray=mode, green=page");
     while (true) {
         restart_if_requested(led);
@@ -266,6 +274,6 @@ void telegraph_app_run(void)
         const uint32_t next_selected = interval_control_get_unit_ms();
         changed |= selected != next_selected;
         selected = next_selected;
-        if (changed) show_state(screen, &keyer, selected, page, &frame);
+        if (changed) show_state(screen, &keyer, selected, page, label, &frame);
     }
 }
