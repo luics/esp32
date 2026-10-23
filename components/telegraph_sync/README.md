@@ -1,6 +1,6 @@
 # telegraph_sync
 
-把已确认的摩斯码历史异步同步到 `https://telegraph.bryanxu.top`。
+把已确认的摩斯码历史异步同步到 `https://telegraph-iot.bryanxu.top`。
 
 `telegraph_sync_start(label)` 在本次启动生成标签后调用一次。
 `telegraph_sync_history(morse)` 在历史增加或词边界变化时调用，只复制已确认历史，不执行网络 I/O。
@@ -27,12 +27,12 @@ HTTP 客户端由同步任务持续持有，同源 POST/PATCH 复用 HTTPS 长�
 Wi-Fi 与 SNTP 就绪后立即用 `HEAD /api/telegraph` 预连接，不创建历史；空闲时每 25 秒 HEAD，业务响应也会重置空闲计时。
 每次业务请求前先维护连接：超过 40 秒未确认活跃则主动断开旧连接并保留票据，先完成安全 HEAD 再发送业务。HEAD 失败每 5 秒重试，不把历史记录标成不明结果；POST 已发出后仍保留原有防重复策略。
 `HTTPS preconnect: HTTP ..., ... ms` 日志可观察启动预热和空闲维护；TCP keepalive 本身不能延长服务器的 HTTP 空闲超时。
-通过证书包配置回调调用 `mbedtls_ssl_conf_groups`，仅为此客户端允许 P-256（secp256r1，IANA 23），避免服务器选择 X25519；不改变其他客户端和证书签名算法配置。
+通过仅作用于同步任务的 `mbedtls_ssl_setup` 链接包装调用 `mbedtls_ssl_conf_groups`，仅为此客户端允许 P-256（secp256r1，IANA 23），避免服务器选择 X25519；不改变其他客户端和证书签名算法配置。
 实板与 Wokwi 配置均已启用 `CONFIG_MBEDTLS_HARDWARE_ECC`，P-256 点乘走 C6 硬件 ECC 路径；仿真性能仍需实测。
-保留 CA 证书包与主机名校验，`HTTP xxx, n ms` 日志可比较首次和后续请求耗时。
+使用内置私有 CA，保留证书与主机名校验，`HTTP xxx, n ms` 日志可比较首次和后续请求耗时。
 `CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y` 配合 `save_client_session` 启用会话恢复；断网或传输失败时只关闭套接字，保留客户端与 RAM 中的票据。
 票据是否可用取决于服务器；被拒绝或过期时仍需完整握手。会话恢复减少后续重连开销，首次冷握手的改善幅度需实测。
-主机 TLS 1.2 实测服务器第二次连接的 `session_reused=True`，确认服务端支持会话恢复；此结果不代表 Wokwi/实板耗时。
+旧域名的主机 TLS 1.2 实测第二次连接 `session_reused=True`；新入口的票据恢复与 Wokwi/实板耗时仍需运行验证。
 待发送内容动态存 RAM，同一词尚未发送的版本合并为最新快照；网络请求期间新增字符不会被旧响应确认覆盖。
 不同词独立保存远端 UUID。断网前未发出的请求与 PATCH 临时失败每 5 秒重试。
 POST 已发出后若超时、失败或 201 缺少有效 Location，则记录错误并阻止该条自动重发，避免重复创建；
@@ -50,9 +50,13 @@ Wokwi defaults 将 TCP MSS 降为 536：原抓包中 1440 字节段反复重传�
 SSID/密码仅保存于未跟踪的生成配置；不要把真实凭据加入 defaults 或提交。
 Wi-Fi 配置使用 RAM，不写入 NVS；NVS 初始化异常时报告错误，不自动擦除。
 
-HTTPS 使用 ESP-IDF 的 CA certificate bundle 和 SNTP 校时，保留证书与主机名校验。
+HTTPS 使用组件内 `telegraph_iot_ca.crt`（私有 CA 的公钥证书，非私钥），通过 `EMBED_TXTFILES` 内置并传给 `cert_pem`；仅信任此 CA，保留证书、有效期与主机名校验，并在 SNTP 校时后连接。
+新接口为 `https://telegraph-iot.bryanxu.top/api/telegraph`，服务端证书链使用 P-256 / SHA-256，Nginx 空闲超时为 75 秒。
+CA 来源为 `luics/luics` 的 `deploy/certs/telegraph_iot_ca.crt`；更新 CA 后需重建固件，部署轮换前应规划过渡期信任。
+TLS 初始化通过 `--wrap=mbedtls_ssl_setup` 保留 P-256 组限制和分段计时，不设置 `crt_bundle_attach`，避免其优先于 `cert_pem`。
+ESP-IDF 6.1 已启用 `CONFIG_MBEDTLS_HARDWARE_ECC`、`CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED`、ECDHE-ECDSA、硬件 SHA/AES；此版本没有独立 `CONFIG_MBEDTLS_HARDWARE_ECDSA_VERIFY`，无需 eFuse 或客户端签名外设。
 联网固件超过原 1 MiB 分区，工程 defaults 使用 `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE`（1500 KiB 单应用，无 OTA）；NVS 与应用起始地址不变。
-需启用 `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE`（工程当前已启用），网络需允许 NTP 访问 `pool.ntp.org`。
+本客户端不依赖公共 CA bundle；网络需允许 NTP 访问 `pool.ntp.org`，HTTP 请求超时为 10 秒。
 无 API token 配置；按给定接口使用公开 JSON API。网络初始化失败只停止同步，本地操作继续。
 
 ## 验证
@@ -60,7 +64,7 @@ HTTPS 使用 ESP-IDF 的 CA certificate bundle 和 SNTP 校时，保留证书与
 运行 `python3 tools/test_host.py`：覆盖词记录归属、增量更新、积压历史、JSON 转义、Location 校验，
 以及 HTTP 替身验证 POST/PATCH 复用客户端、请求状态重置、JSON 生命周期、断线重建、完整字段及重试策略；不向线上写入测试数据。
 HTTP 替身按 IDF 6.1 行为模拟清空请求体：先清空引用，再删除 Content-Type；缺失头的 `ESP_ERR_NOT_FOUND` 仅在清空时按正常结果处理，非空请求体与其他错误不被忽略。
-HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连事件与预探测失败不发送 POST，以及 P-256、证书包、会话保存和客户端生命周期。
+HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连事件与预探测失败不发送 POST，以及私有 CA、主机名校验、会话保存和客户端生命周期；TLS 初始化替身覆盖 P-256 配置、跨任务隔离和原始错误码透传。
 修改 Kconfig 后，按根目录 AGENTS.md 先取得重新配置授权，再执行实板与 Wokwi 构建。
 联网仿真应观察串口 POST/PATCH 的状态码，并确认同词 UUID 不变、下一词使用新 UUID，
 同时检查按键声光、模式切换和翻页不被网络超时阻塞。
@@ -70,7 +74,7 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 每次实际建联的 HEAD 或业务请求结束后集中输出 `TLS_TIMING` 日志；失败也输出，后续重试重新计时；复用现有连接的请求不重复输出。
 启动预热已恢复。仅记录阶段名、耗时和调用次数，不记录证书、密钥、会话票据或请求内容。
 
-- `dns_tcp_setup`：从 HTTP perform 开始到 TLS 配置回调，包含 DNS、TCP 建连及前置初始化，不是单独的 DNS 耗时。
+- `dns_tcp_setup`：从 HTTP perform 开始到 TLS setup 包装入口，包含 DNS、TCP 建连及前置初始化，不是单独的 DNS 耗时。
 - `handshake`：首次 TLS 1.2 客户端状态步骤到 HTTP `ON_CONNECTED`；包含握手步骤间的调度、网络等待及少量收尾。
 - `after_connect`：连接完成到 HTTP perform 返回，包含请求发送和响应处理。
 - `request_total`：本次 HTTP perform 全程。
@@ -87,7 +91,7 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 | `client_cipher_spec_derive_keys` | 派生会话密钥和 ChangeCipherSpec |
 | `server_ticket_or_cipher_spec_wait` / `server_finished_wait_verify` | 等待服务器票据、切换密码状态和完成确认 |
 
-逐次签名验证额外输出 `TLS_VERIFY`：在同一握手步骤内包装 `psa_verify_hash`，覆盖当前版本证书链、证书包信任锚和 TLS 1.2 服务端签名的验证路径。
+逐次签名验证额外输出 `TLS_VERIFY`：在同一握手步骤内包装 `psa_verify_hash`，覆盖当前版本证书链、私有 CA 信任锚和 TLS 1.2 服务端签名的验证路径。
 每条包含 `index`、`stage`、`alg`（RSA_PKCS1v1_5 / RSA_PSS / ECDSA）、`hash`、原始 `alg_id`、`key`、`bits`、`elapsed_us`、`result`、`attrs_result` 和 `cache_hit`。
 `bits` 是用于验证签名的公钥位数（签发者/签名者的密钥），不是被签名证书自身的公钥位数；`elapsed_us` 除以 1000 得到毫秒。
 `result=0` 表示验签成功，`attrs_result=0` 表示公钥元数据读取成功；元数据读取失败时仍原样执行验签，位数标为 0，并保留错误码。
@@ -109,7 +113,7 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 
 ## 证书签名验证缓存与长时间空闲
 
-`4-wokwi.pcap` 显示旧连接在最后响应约 52 秒后关闭；第二次 ClientHello 带有 208 字节票据，说明客户端确实尝试恢复。
+旧域名的 `4-wokwi.pcap` 显示连接在最后响应约 52 秒后关闭；第二次 ClientHello 带有 208 字节票据，说明客户端确实尝试恢复。
 服务端票据 lifetime hint 为 300 秒，再次 ClientHello 距上次出票约 304 秒，并收到完整 Certificate / ServerKeyExchange，符合票据过期后回退完整握手的情况；服务端也可以因其他策略拒绝恢复。
 25 秒 HEAD 用于维护 HTTP 连接；断线后仍由 ESP-IDF 保存和尝试票据。过期/被拒绝时自动回退完整握手，不依赖恢复成功。
 
@@ -123,7 +127,7 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 - RAM 中最多 32 项，LRU 淘汰，成功缓存 1 小时后过期；重启清空。缓存不是无限容量，不保证断电后继续加速。
 - `TLS_VERIFY ... cache_hit=1` 表示复用数学验签结果；`cache_hit=0` 表示真实验签或无法缓存。服务器握手签名随随机数变化，通常仍会未命中。
 
-冷启动仍需一次完整证书校验，启动预热将其提前到后台。之后票据失效时，缓存命中可以避免重复的两次 RSA 4096 验签；证书链变更或缓存过期会重新验证。
+冷启动仍需一次完整证书校验，启动预热将其提前到后台。旧公共 CA 链曾有两次 RSA 4096 验签；新入口使用 P-256 / SHA-256，缓存继续复用成功的数学验签结果，证书链变更或缓存过期会重新验证。
 主机替身覆盖缓存输入绑定、失败不缓存、元数据/导出/哈希失败回退、TTL 和 LRU；固件构建不能替代实际断网、票据恢复及缓存提速的运行验证。
 
 ## Component Registry 调研（2026-10-23）
@@ -142,3 +146,5 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 抓包显示首次握手服务器数据约 0.1 秒内到达，客户端在约 36–40 秒后才发送加密 HTTP；ServerKeyExchange 使用组 29（X25519）。
 当前 ESP-IDF C6 ECC 驱动对 X25519 使用软件回退，值得比较服务器也支持的 P-256 与 C6 硬件 ECC 路径。
 主机已验证服务器接受 P-256，但不能据此推断 ESP32 或 Wokwi 的实际耗时；当前已将此客户端密钥交换限制为 P-256，需另做仿真和实板性能对照。
+
+2026-10-23：主机使用内置 CA 且保持域名校验，对新入口 HEAD 得到 HTTP 200；这不能替代 C6/Wokwi 的握手耗时验证。

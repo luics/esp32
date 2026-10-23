@@ -55,7 +55,7 @@ static esp_err_t network_start(void)
     if ((err = esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK) return err;
     if ((err = esp_wifi_set_config(WIFI_IF_STA, &config)) != ESP_OK) return err;
     if ((err = esp_wifi_start()) != ESP_OK) return err;
-    /* 证书校验使用 CA bundle 与 SNTP 时间，不关闭主机名或证书校验。 */
+    /* 证书校验使用内置私有 CA 与 SNTP 时间，不关闭主机名或证书校验。 */
     esp_sntp_config_t time_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
     return esp_netif_sntp_init(&time_config);
 }

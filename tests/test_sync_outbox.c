@@ -67,10 +67,10 @@ int main(void)
     assert(!strcmp(other.head->json, "{\"morse\":\".-..-. ........\",\"content\":\"\\\"?\",\"label\":\"XYZ\"}"));
     assert(other.head->next == other.tail && other.tail->start == 2);
     char id[37];
-    const char *base = "https://telegraph.bryanxu.top";
+    const char *base = "https://telegraph-iot.bryanxu.top";
     assert(sync_location_id("/api/telegraph/01234567-89ab-cdef-0123-456789abcdef", base, id));
     assert(!strcmp(id, first->id));
-    assert(sync_location_id("https://telegraph.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef", base, id));
+    assert(sync_location_id("https://telegraph-iot.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef", base, id));
     assert(!sync_location_id("https://evil.example/api/telegraph/01234567-89ab-cdef-0123-456789abcdef", base, id));
     assert(!sync_location_id("/api/telegraph/not-a-uuid", base, id));
     assert(!sync_location_id("/api/telegraph/01234567-89ab-cdef-0123-456789abcdef/extra", base, id));

@@ -5,12 +5,13 @@
 #include <string.h>
 #include <strings.h>
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
 #include "sdkconfig.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include <inttypes.h>
-#include "mbedtls/ssl.h"
+
+/* 仅内置私有 CA 公钥证书，信任配置由 ESP-TLS 解析并校验域名。 */
+extern const char iot_ca_start[] __asm__("_binary_telegraph_iot_ca_crt_start");
 
 typedef struct { char location[256]; bool headers_sent; } response_t;
 /* 回调上下文与客户端同寿命，跨请求保留 TLS 连接；只由同步任务访问。 */
@@ -61,23 +62,14 @@ void sync_http_disconnect(void)
                    set_request_body(NULL) != ESP_OK)) sync_http_reset();
 }
 
-static esp_err_t configure_tls(void *config)
-{
-    /* 仅为此客户端限制密钥交换组，避免服务器选择走软件计算的 X25519。
-     * P-256 使用 C6 已启用的硬件 ECC；证书与主机名校验仍由原流程完成。 */
-    sync_tls_timing_configured(config);
-    static const uint16_t groups[] = {MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, 0};
-    mbedtls_ssl_conf_groups(config, groups);
-    return esp_crt_bundle_attach(config);
-}
-
 static esp_err_t request(esp_http_client_method_t method, const char *url,
                          const char *json, int *status)
 {
     memset(&response, 0, sizeof(response));
     esp_http_client_config_t config = {
         .url = url, .method = method,
-        .timeout_ms = 5000, .crt_bundle_attach = configure_tls,
+        .timeout_ms = 10000, .cert_pem = iot_ca_start,
+        .skip_cert_common_name_check = false,
         .event_handler = http_event, .user_data = &response, .disable_auto_redirect = true,
         .keep_alive_enable = true,
 #ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS

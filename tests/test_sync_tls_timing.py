@@ -40,7 +40,9 @@ void test_log(const char *, const char *, ...);
 #define ESP_LOGI test_log
 #define ESP_LOGW test_log
 #define MBEDTLS_PRIVATE(name) name
-typedef struct { int unused; } mbedtls_ssl_config;
+typedef struct { const uint16_t *groups; } mbedtls_ssl_config;
+#define MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1 0x0017
+void mbedtls_ssl_conf_groups(mbedtls_ssl_config *, const uint16_t *);
 typedef struct { int state; const mbedtls_ssl_config *conf; } mbedtls_ssl_context;
 static inline const mbedtls_ssl_config *mbedtls_ssl_context_get_config(const mbedtls_ssl_context *ssl) {return ssl->conf;}
 enum {
@@ -103,9 +105,24 @@ int __real_mbedtls_ssl_handshake_client_step(mbedtls_ssl_context *ssl) {
     }
     ssl->state++;return result;
 }
+static int setup_calls;
+void mbedtls_ssl_conf_groups(mbedtls_ssl_config *c,const uint16_t *g) {c->groups=g;}
+int __real_mbedtls_ssl_setup(mbedtls_ssl_context *ssl,const mbedtls_ssl_config *c) {
+    ++setup_calls;ssl->conf=c;return -42;
+}
+int __wrap_mbedtls_ssl_setup(mbedtls_ssl_context *,const mbedtls_ssl_config *);
 int main(void) {
     mbedtls_ssl_config conf={0}, foreign={0};
     mbedtls_ssl_context ssl={.state=MBEDTLS_SSL_SERVER_CERTIFICATE,.conf=&conf};
+    /* 初始化钩子仅配置当前同步任务，原始参数和错误码始终透传。 */
+    assert(__wrap_mbedtls_ssl_setup(&ssl,&foreign)==-42 && !foreign.groups);
+    sync_tls_timing_begin();
+    task=(void *)2;
+    assert(__wrap_mbedtls_ssl_setup(&ssl,&foreign)==-42 && !foreign.groups);
+    task=(void *)1;
+    assert(__wrap_mbedtls_ssl_setup(&ssl,&conf)==-42 && setup_calls==3);
+    assert(conf.groups && conf.groups[0]==0x0017 && conf.groups[1]==0);
+    sync_tls_timing_finish(-42);logs[0]=0;
     /* 原函数参数与错误码透传；元数据查询失败仍执行真实验签。 */
     verify(1,0x102);assert(attributes_calls==0);
     sync_tls_timing_begin();sync_tls_timing_configured(&conf);

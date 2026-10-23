@@ -80,6 +80,20 @@ void sync_tls_timing_configured(const void *config)
     timing.configured = esp_timer_get_time();
 }
 
+int __real_mbedtls_ssl_setup(mbedtls_ssl_context *ssl, const mbedtls_ssl_config *config);
+
+int __wrap_mbedtls_ssl_setup(mbedtls_ssl_context *ssl, const mbedtls_ssl_config *config)
+{
+    /* 私有 CA 由 cert_pem 配置；在当前同步任务的 TLS 初始化时保留 P-256 与计时，
+     * 不再借用会覆盖 cert_pem 的公共证书包回调，也不影响其他任务的连接。 */
+    if (timing.active && xTaskGetCurrentTaskHandle() == timing.task) {
+        static const uint16_t groups[] = {MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, 0};
+        mbedtls_ssl_conf_groups((mbedtls_ssl_config *)config, groups);
+        sync_tls_timing_configured(config);
+    }
+    return __real_mbedtls_ssl_setup(ssl, config);
+}
+
 int __wrap_mbedtls_ssl_handshake_client_step(mbedtls_ssl_context *ssl)
 {
     /* 按 SSL 配置过滤，其他网络任务不计入当前请求。状态读取局限在本诊断模块。 */

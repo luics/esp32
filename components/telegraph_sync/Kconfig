@@ -14,7 +14,7 @@ menu "Telegraph API synchronization"
             Stored only in local generated sdkconfig; never commit secrets.
     config TELEGRAPH_SYNC_BASE_URL
         string "Telegraph HTTPS base URL (without trailing slash)"
-        default "https://telegraph.bryanxu.top"
+        default "https://telegraph-iot.bryanxu.top"
         help
             POST /api/telegraph creates a word; PATCH updates its UUID.
 endmenu

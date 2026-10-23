@@ -20,6 +20,8 @@ typedef struct {int event_id; void *user_data; char *header_key; char *header_va
 typedef struct {
     const char *url;
     int method, timeout_ms;
+    const char *cert_pem;
+    bool skip_cert_common_name_check;
     esp_err_t (*crt_bundle_attach)(void *);
     esp_err_t (*event_handler)(esp_http_client_event_t *);
     void *user_data;
@@ -41,7 +43,7 @@ int esp_http_client_get_status_code(void *);
 esp_err_t esp_http_client_cleanup(void *);
 esp_err_t esp_http_client_close(void *);
 esp_err_t esp_crt_bundle_attach(void *);
-#define CONFIG_TELEGRAPH_SYNC_BASE_URL "https://telegraph.bryanxu.top"
+#define CONFIG_TELEGRAPH_SYNC_BASE_URL "https://telegraph-iot.bryanxu.top"
 #define CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS 1
 '''
 HARNESS = r'''
@@ -50,6 +52,7 @@ HARNESS = r'''
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+const char iot_ca_start[] __asm__("_binary_telegraph_iot_ca_crt_start") = "TEST PRIVATE CA PUBLIC CERT";
 void sync_tls_timing_begin(void) {}
 void sync_tls_timing_configured(const void *config) {(void)config;}
 void sync_tls_timing_connected(void) {}
@@ -71,17 +74,15 @@ esp_err_t esp_crt_bundle_attach(void *p){((mbedtls_ssl_config *)p)->bundle_attac
 void *esp_http_client_init(const esp_http_client_config_t *c){
     ++init_count;
     config=*c;
-    assert(c->method==HTTP_METHOD_HEAD && c->timeout_ms==5000 && c->disable_auto_redirect && c->keep_alive_enable);
-    assert(c->crt_bundle_attach && c->save_client_session);
-    mbedtls_ssl_config tls={0};
-    assert(c->crt_bundle_attach(&tls)==ESP_OK && tls.bundle_attached);
-    assert(tls.groups && tls.groups[0]==0x0017 && tls.groups[1]==0);
-    assert(!strcmp(c->url, method!=HTTP_METHOD_PATCH ? "https://telegraph.bryanxu.top/api/telegraph" :
-        "https://telegraph.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef"));
+    assert(c->method==HTTP_METHOD_HEAD && c->timeout_ms==10000 && c->disable_auto_redirect && c->keep_alive_enable);
+    assert(!c->crt_bundle_attach && c->save_client_session);
+    assert(c->cert_pem==iot_ca_start && !c->skip_cert_common_name_check);
+    assert(!strcmp(c->url, method!=HTTP_METHOD_PATCH ? "https://telegraph-iot.bryanxu.top/api/telegraph" :
+        "https://telegraph-iot.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef"));
     return (void*)1;
 }
-esp_err_t esp_http_client_set_url(void *p,const char *url){(void)p;assert(!strcmp(url, "https://telegraph.bryanxu.top/api/telegraph") || !strcmp(url, method!=HTTP_METHOD_PATCH ?
-    "https://telegraph.bryanxu.top/api/telegraph" : "https://telegraph.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef"));return ESP_OK;}
+esp_err_t esp_http_client_set_url(void *p,const char *url){(void)p;assert(!strcmp(url, "https://telegraph-iot.bryanxu.top/api/telegraph") || !strcmp(url, method!=HTTP_METHOD_PATCH ?
+    "https://telegraph-iot.bryanxu.top/api/telegraph" : "https://telegraph-iot.bryanxu.top/api/telegraph/01234567-89ab-cdef-0123-456789abcdef"));return ESP_OK;}
 esp_err_t esp_http_client_set_method(void *p,int m){(void)p;assert(m==method || m==HTTP_METHOD_HEAD);actual_method=m;return ESP_OK;}
 esp_err_t esp_http_client_set_header(void *p,const char *key,const char *value){(void)p;assert(!strcmp(key,"Content-Type")&&!strcmp(value,"application/json"));has_content_type=true;return ESP_OK;}
 esp_err_t esp_http_client_set_post_field(void *p,const char *json,int length){(void)p;
@@ -156,7 +157,7 @@ int main(void){
     assert(sync_http_prepare()==ESP_ERR_NO_MEM);
     assert(head_count==before_clear && init_count==2 && cleanup_count==2);
     clear_error=ESP_OK;
-    puts("PASS: P-256-only TLS groups with certificate validation, missing Content-Type clear, strict other errors, startup/25s HEAD probes, stale close, probe failure before POST, POST/PATCH reuse, session-ticket configuration and retention, JSON lifetime, UUID and retry policy");
+    puts("PASS: embedded private CA with hostname validation, missing Content-Type clear, strict other errors, startup/25s HEAD probes, stale close, probe failure before POST, POST/PATCH reuse, session-ticket configuration and retention, JSON lifetime, UUID and retry policy");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="esp32-http-tests-") as directory:
