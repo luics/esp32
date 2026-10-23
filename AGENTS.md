@@ -7,9 +7,10 @@ repository when they override this baseline.
 ## 当前项目：微雪 ESP32-C6-Zero
 
 - 环境：ESP-IDF v6.1，EIM 环境名 `stable-mcp`；target 为 `esp32c6`，Flash 为 8 MB。
-- 板载单颗 WS2812 的数据引脚为 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
-  上电灭灯，按下 BOOT（GPIO9，低电平有效）后蓝光亮、灭各 500 ms。
-  长按不重复，连续按下逐次排队；复位时松开 BOOT，避免进入下载模式。
+- 板载单颗 WS2812 的 DIN 连接 GPIO8，使用 **RGB** 数据顺序；通过 RMT 驱动，
+  上电灭灯，按下外接按钮（GPIO0 与 GND，低电平有效）后蓝光亮、灭各 500 ms。
+  长按不重复，连续按下逐次排队。板载 BOOT 仍接 GPIO9，
+  不用于本应用；复位时松开 BOOT，避免进入下载模式。
 - 应用配置使用 `CONFIG_BLINK_RGB_GPIO`，默认值见 `sdkconfig.defaults`；旧符号
   `CONFIG_BLINK_GPIO` 已停用。组件接口与行为见 [blink 说明](components/blink/README.md)；
   按钮组件使用 `CONFIG_BUTTON_INPUT_GPIO`，接口见 [button_input 说明](components/button_input/README.md)。
@@ -22,16 +23,17 @@ eim run "idf.py reconfigure" stable-mcp
 eim run "idf.py build" stable-mcp
 ```
 
-重新配置后确认生成的 `sdkconfig` 中 `CONFIG_BLINK_RGB_GPIO=8`；已有配置可能覆盖 defaults。
+重新配置后确认生成的 `sdkconfig` 中 `CONFIG_BLINK_RGB_GPIO=8` 和
+`CONFIG_BUTTON_INPUT_GPIO=0`；已有配置可能覆盖 defaults。
 在 VS Code 执行 **Wokwi: Start Simulator**；固件路径由 `wokwi.toml` 指定，使用
 `build/flasher_args.json` 和 `build/esp32_blink.elf`，无需另行合并固件。
 
 Wokwi 使用 DevKitC-1 替代板型，并用右侧独立 `wokwi-neopixel` 模拟 Zero 的板载灯：
-GPIO8 → DIN、5V → VDD、GND → VSS；绿色按钮连接 GPIO9 与 GND。
-启动后点击绿色按钮或板上 BOOT，验证蓝灯从灭到亮再灭；长按只闪一次，松开再按可再次触发。
+GPIO8 → DIN、5V → VDD、GND → VSS；绿色按钮连接 GPIO0 与 GND。
+启动后点击绿色外接按钮，验证蓝灯从灭到亮再灭；长按只闪一次，松开再按可再次触发。
 验证时实际观察蓝灯亮灭，不能只检查启动日志；
 板上的常亮红灯是电源指示灯。替代模型不复现 Zero 的完整硬件，蓝光也不能验证
-RGB/GRB 的红绿通道顺序；实板烧录验证尚未进行。
+RGB/GRB 的红绿通道顺序；实板启动日志已验证，按钮与灯光效果仍需实际观察。
 
 硬件依据：[微雪引脚图](https://docs.waveshare.com/ESP32-C6-Zero)、
 [RGB 顺序说明](https://docs.waveshare.com/ESP32-C6-Zero/FAQ)。

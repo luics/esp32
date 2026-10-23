@@ -6,17 +6,17 @@
     { "type": "board-esp32-c6-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
     { "type": "wokwi-neopixel", "id": "rgb", "top": 64, "left": 212, "attrs": {} },
     { "type": "wokwi-text", "id": "note", "top": -60, "left": 0,
-      "attrs": { "text": "Press button / BOOT\nOne blue flash" } },
+      "attrs": { "text": "Press external button\nOne blue flash" } },
     { "type": "wokwi-text", "id": "rgb_label", "top": 92, "left": 196,
       "attrs": { "text": "LED · GPIO8" } },
     { "type": "wokwi-pushbutton", "id": "button", "top": 184, "left": 190,
-      "attrs": { "color": "green", "label": "Flash · GPIO9", "key": "B" } }
+      "attrs": { "color": "green", "label": "Flash · GPIO0", "key": "B" } }
   ],
   "connections": [
     ["esp:8", "rgb:DIN", "green", []],
     ["esp:5V", "rgb:VDD", "red", []],
     ["esp:GND.1", "rgb:VSS", "black", []],
-    ["esp:9", "button:1.l", "green", ["h38.4"]],
+    ["esp:0", "button:1.l", "green", ["h38.4"]],
     ["button:2.l", "esp:GND.1", "black", []]
   ]
 }

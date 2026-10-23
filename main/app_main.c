@@ -10,7 +10,8 @@ static const char *TAG = "app";
 
 static void on_button_press(void *context)
 {
-    /* 驱动回调只发送计数通知，闪光延时由主任务承担。 */
+    /* 消抖后的每次按下立即记录，再发送计数通知；闪光延时由主任务承担。 */
+    ESP_LOGI(TAG, "Button pressed: GPIO %d", CONFIG_BUTTON_INPUT_GPIO);
     xTaskNotifyGive((TaskHandle_t)context);
 }
 
@@ -31,7 +32,7 @@ void app_main(void)
     while (true) {
         /* 每次取走一个通知；闪光期间的新按下会排队，长按不重复触发。 */
         ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-        ESP_LOGI(TAG, "Button pressed: flash once");
+        ESP_LOGI(TAG, "Flash once: GPIO %d LED", CONFIG_BLINK_RGB_GPIO);
         /* 串行执行一次亮灭；等待期间按钮驱动仍可继续检测新的按下。 */
         ESP_ERROR_CHECK(blink_once(led));
     }
