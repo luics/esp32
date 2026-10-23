@@ -236,6 +236,10 @@ void telegraph_app_run(void)
                 ++page_requests;
             } else if (event.kind == MODE_TOGGLE) {
                 keyer_toggle_mode(&keyer);
+                /* 点击时报告目标模式，发送中明确提示延后生效，避免误报当前状态。 */
+                ESP_LOGI(TAG, "GPIO%d 模式切换：%s%s", CONFIG_BUTTON_INPUT_MODE_GPIO,
+                         keyer.target_dual ? "双键模式（D）" : "单键模式（S）",
+                         keyer.target_dual != keyer.dual_mode ? "，当前信号结束后生效" : "");
                 changed = true;
             } else if (!wait_keys_release) {
                 const keyer_key_t key = event.kind == RED_DOWN || event.kind == RED_UP ? KEYER_RED : KEYER_BLACK;
