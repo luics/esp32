@@ -3,12 +3,14 @@
 #include "button_gpio.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
+#include "esp_log.h"
 #include "iot_button.h"
 
 static const char *TAG = "button_input";
 
 struct button_input {
     button_handle_t driver;
+    int gpio_number;
     button_input_callback_t callback;
     button_input_edge_callback_t edge_callback;
     void *context;
@@ -19,6 +21,8 @@ static void on_press(void *button, void *user_data)
     (void)button;
     /* 将驱动事件转交给应用回调，透传创建时保存的上下文。 */
     const struct button_input *input = user_data;
+    /* 在消抖按下时统一记录，覆盖全部按钮且不随长按重复发送。 */
+    ESP_LOGI(TAG, "Click: GPIO%d", input->gpio_number);
     if (input->edge_callback) input->edge_callback(true, input->context);
     else input->callback(input->context);
 }
@@ -42,6 +46,7 @@ static esp_err_t create_input(int gpio_number, button_input_callback_t callback,
     /* 保存回调及上下文，供后续每次按下时使用。 */
     button_input_handle_t input = calloc(1, sizeof(*input));
     ESP_RETURN_ON_FALSE(input, ESP_ERR_NO_MEM, TAG, "Failed to allocate button");
+    input->gpio_number = gpio_number;
     input->callback = callback;
     input->edge_callback = edge_callback;
     input->context = context;

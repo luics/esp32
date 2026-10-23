@@ -12,7 +12,7 @@ menu "按钮输入配置"
         int "红色摩斯码按键 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 10
+        default 0
         help
             红色按钮连接此 GPIO 与 GND，内部上拉并使用软件消抖。
             松开时按按住时长识别点划：不足3单位为点，达到3单位为划。
@@ -23,7 +23,7 @@ menu "按钮输入配置"
         int "黑色双键模式划按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 0
+        default 1
         help
             黑色按钮连接此 GPIO 与 GND，复用内部上拉与消抖。
             仅双键模式有效：按下缓存标准划，长按连续重复。
@@ -33,7 +33,7 @@ menu "按钮输入配置"
         int "灰色单键/双键模式切换按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 1
+        default 2
         help
             灰色按钮连接此 GPIO 与 GND，每次按下切换一次模式。
             默认双键模式，长按不重复切换；引脚须与其他外设不同。

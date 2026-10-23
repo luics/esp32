@@ -24,7 +24,7 @@
     ["esp:8", "rgb:DIN", "green", ["h-350", "*", "h20"]],
     ["esp:5V", "rgb:VDD", "red", ["h-414.6"]],
     ["rgb:VSS", "button_gray:2.l", "black", ["h10"]],
-    ["esp:10", "button_red:1.l", "red", ["h-14", "*", "h-14"]],
+    ["esp:0", "button_red:1.l", "red", ["h-14", "*", "h-14"]],
     ["esp:9", "button:1.r", "green", ["h30", "v-150.4", "*", "h40"]],
     ["esp:11", "button_blue:1.r", "blue", ["*", "h18"]],
     ["button_blue:2.r", "button:2.r", "black", ["h28", "*", "h28"]],
@@ -39,8 +39,8 @@
     ["esp:7", "screen:SDA", "green", ["h-16", "v-46", "*", "h34"]],
     ["esp:3V3", "screen:VCC", "red", ["*", "h46"]],
     ["esp:GND.2", "screen:GND", "black", ["h42", "*", "v65", "h42"]],
-    ["esp:0", "button_black:1.r", "gray", ["h-20", "v-65", "*", "h18"]],
-    ["esp:1", "button_gray:1.r", "gray", ["h-34", "v-65", "*", "h30"]],
+    ["esp:1", "button_black:1.r", "gray", ["h-20", "v-65", "*", "h18"]],
+    ["esp:2", "button_gray:1.r", "gray", ["h-34", "v-65", "*", "h30"]],
     ["button_black:2.l", "button_red:2.r", "black", []],
     ["button_gray:2.l", "button_black:2.l", "black", []]
   ]

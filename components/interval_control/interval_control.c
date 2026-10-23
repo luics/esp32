@@ -35,7 +35,8 @@ static void update_interval(int raw, bool initial)
     if (initial || band != current_band) {
         current_band = band;
         atomic_store(&current_unit_ms, units[band]);
-        ESP_LOGI(TAG, "Interval: %lu ms (ADC %d)", (unsigned long)units[band], raw);
+        /* 悬空输入可能频繁跳档，运行采样细节仅在调试级别输出。 */
+        ESP_LOGD(TAG, "Interval: %lu ms (ADC %d)", (unsigned long)units[band], raw);
     }
 }
 
@@ -46,7 +47,7 @@ static void potentiometer_task(void *context)
         int raw = 0;
         const esp_err_t ret = adc_oneshot_read(adc_handle, adc_channel, &raw);
         if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "ADC read failed: %s", esp_err_to_name(ret));
+            ESP_LOGD(TAG, "ADC read failed: %s", esp_err_to_name(ret));
         } else {
             update_interval(raw, false);
         }

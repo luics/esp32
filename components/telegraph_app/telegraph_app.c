@@ -194,6 +194,8 @@ void telegraph_app_run(void)
     for (size_t i = 0; i < sizeof(label) - 1; ++i) {
         label[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
     }
+    /* 标签与本次启动同步，使用警告级别便于串口定位。 */
+    ESP_LOGW(TAG, "label=%s", label);
     ESP_ERROR_CHECK(telegraph_sync_start(label));
     size_t page = 0;
     bool feedback_active = false;

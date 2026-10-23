@@ -15,9 +15,9 @@ repository when they override this baseline.
 
 | 功能 | 端口与行为 |
 |---|---|
-| 摩斯码按键（红） | GPIO10 ↔ GND；单键模式按住时长识别；双键模式触发标准点 |
-| 划按键（黑） | GPIO0 ↔ GND；仅双键模式触发标准划，单键模式不可用 |
-| 模式按钮（灰） | GPIO1 ↔ GND；每次按下切换 S 单键 / D 双键模式，长按不重复切换 |
+| 摩斯码按键（红） | GPIO0 ↔ GND；单键模式按住时长识别；双键模式触发标准点 |
+| 划按键（黑） | GPIO1 ↔ GND；仅双键模式触发标准划，单键模式不可用 |
+| 模式按钮（灰） | GPIO2 ↔ GND；每次按下切换 S 单键 / D 双键模式，长按不重复切换 |
 | 历史翻页按钮（绿 / BOOT） | GPIO9 ↔ GND；按下一次翻一页，末页回首页，不发送点划 |
 | 复位按钮（蓝） | GPIO11 ↔ GND；配置项 `CONFIG_BUTTON_INPUT_BLUE_GPIO` |
 | WS2812 DIN | GPIO8；实板 RGB，Wokwi 独立固件 GRB |

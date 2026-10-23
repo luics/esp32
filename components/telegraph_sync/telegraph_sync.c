@@ -111,7 +111,6 @@ static void sync_worker(void *context)
         const TickType_t started = xTaskGetTickCount();
         const sync_http_result_t result = sync_http_send(id, json, &status, &err);
         const uint32_t duration_ms = (xTaskGetTickCount() - started) * portTICK_PERIOD_MS;
-        free(json);
         const bool success = result == SYNC_HTTP_ACK;
         xSemaphoreTake(lock, portMAX_DELAY);
         if (success) {
@@ -121,13 +120,16 @@ static void sync_worker(void *context)
         }
         xSemaphoreGive(lock);
         if (success) {
-            ESP_LOGI(TAG, "%s %s: HTTP %d, %lu ms", create ? "POST" : "PATCH", id, status,
-                     (unsigned long)duration_ms);
+            ESP_LOGI(TAG, "%s %s: HTTP %d, %lu ms, payload=%s", create ? "POST" : "PATCH", id, status,
+                     (unsigned long)duration_ms, json);
         } else {
-            ESP_LOGE(TAG, "%s failed: %s, HTTP %d%s", create ? "POST" : "PATCH", esp_err_to_name(err),
-                     status, record->blocked ? "; record blocked, local history retained" : "; retry in 5s");
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            ESP_LOGE(TAG, "%s failed: %s, HTTP %d, %lu ms, payload=%s%s",
+                     create ? "POST" : "PATCH", esp_err_to_name(err), status, (unsigned long)duration_ms, json,
+                     record->blocked ? "; record blocked, local history retained" : "; retry in 5s");
         }
+        /* 打印本次发送的完整快照，包含摩斯码、字符和标签，再释放以免读到后续版本。 */
+        free(json);
+        if (!success) vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 

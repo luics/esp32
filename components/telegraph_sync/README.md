@@ -12,7 +12,7 @@
 
 - `POST /api/telegraph`：要求 HTTP 201，并从相对或同源绝对 `Location` 提取 UUID。
 - `PATCH /api/telegraph/:id`：更新已创建记录，接受 2xx。
-- 两种请求均发送完整 JSON，包含 `morse`、`content`、`label`。
+- 两种请求均发送完整 JSON，包含 `morse`、`content`、`label`。成功与失败日志均包含本次发送快照 `payload={...}`，分别记录摩斯码、解码字符和标签，并保留状态码与耗时。
 
 例如输入 H、I：先提交 `{"morse":"....","content":"H","label":"A09"}`，随后对同一个 UUID 更新为
 `{"morse":".... ..","content":"HI","label":"A09"}`。

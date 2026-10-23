@@ -22,11 +22,11 @@ static inline void test_log(const char *tag, const char *format, ...) { (void)ta
 #define CONFIG_BEEP_FREQUENCY_HZ 2000
 #define CONFIG_INTERVAL_CONTROL_ADC_GPIO 4
 #define CONFIG_INTERVAL_CONTROL_SAMPLE_INTERVAL_MS 50
-#define CONFIG_BUTTON_INPUT_RED_GPIO 10
+#define CONFIG_BUTTON_INPUT_RED_GPIO 0
 #define CONFIG_BUTTON_INPUT_GPIO 9
 #define CONFIG_BUTTON_INPUT_BLUE_GPIO 11
-#define CONFIG_BUTTON_INPUT_BLACK_GPIO 0
-#define CONFIG_BUTTON_INPUT_MODE_GPIO 1
+#define CONFIG_BUTTON_INPUT_BLACK_GPIO 1
+#define CONFIG_BUTTON_INPUT_MODE_GPIO 2
 #define CONFIG_DISPLAY_SCLK_GPIO 6
 #define CONFIG_DISPLAY_MOSI_GPIO 7
 #define CONFIG_DISPLAY_CS_GPIO 18
@@ -119,13 +119,13 @@ uint32_t interval_control_get_unit_ms(void){return clock_ms>=400 ? 60 : 100;}
 esp_err_t display_init(const display_config_t *config,display_handle_t *handle){(void)config;*handle=(void*)1;return ESP_OK;}
 esp_err_t display_show_frame(display_handle_t handle,const display_frame_t *frame){(void)handle;assert(!strcmp(frame->label,"A09"));last_frame=*frame;return ESP_OK;}
 esp_err_t button_input_create_edges(int gpio,button_input_edge_callback_t callback,void *ctx,button_input_handle_t *handle){
-    if(gpio==10){red_edge=callback;red_context=ctx;}
-    else {assert(gpio==0);black_edge=callback;black_context=ctx;}
+    if(gpio==CONFIG_BUTTON_INPUT_RED_GPIO){red_edge=callback;red_context=ctx;}
+    else {assert(gpio==CONFIG_BUTTON_INPUT_BLACK_GPIO);black_edge=callback;black_context=ctx;}
     *handle=(void*)1;return ESP_OK;
 }
 esp_err_t button_input_create(int gpio,button_input_callback_t callback,void *ctx,button_input_handle_t *handle){
-    if(gpio==9){green_press=callback;green_context=ctx;}
-    else if(gpio==1){mode_press=callback;mode_context=ctx;}else assert(gpio==11);
+    if(gpio==CONFIG_BUTTON_INPUT_GPIO){green_press=callback;green_context=ctx;}
+    else if(gpio==CONFIG_BUTTON_INPUT_MODE_GPIO){mode_press=callback;mode_context=ctx;}else assert(gpio==CONFIG_BUTTON_INPUT_BLUE_GPIO);
     *handle=(void*)1;return ESP_OK;
 }
 static void dual_step(TickType_t ticks){

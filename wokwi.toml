@@ -1,6 +1,6 @@
 [wokwi]
 # 摩斯码电报机等效仿真：使用 DevKitC-1 的 GPIO8 连接独立 WS2812 元件。
-# 点划按键 GPIO10（R）、历史翻页 GPIO9（G）、复位 GPIO11（B），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
+# 红键 GPIO0（R）、黑键 GPIO1（D）、模式按钮 GPIO2（M）、历史翻页 GPIO9（G）、复位 GPIO11（B），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
 # 构建：eim run "bash tools/build_wokwi.sh build" stable-mcp
 # 仿真固件使用 GRB、SH1107 128x128 I2C OLED（SCL GPIO6 / SDA GPIO7）。
 # SH1107 近似 SSD1327 的黑白画面，不模拟 16 级灰度；实板驱动状态见 AGENTS.md。
