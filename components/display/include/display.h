@@ -17,7 +17,7 @@ typedef struct {
     int reset_gpio;
 } display_config_t;
 
-/* 白底黑字；只传递显示快照，输入逻辑及历史由应用管理。 */
+/* 白底、黑色输入与状态、灰色历史；只传递显示快照，输入逻辑及历史由应用管理。 */
 typedef struct {
     uint32_t selected_unit_ms;
     uint32_t character_unit_ms;

@@ -52,8 +52,8 @@ repository when they override this baseline.
 
 - 真实屏幕规格：1.5 英寸 SSD1327，128×128、16 级灰度，支持 SPI/I2C。
   Wokwi 使用原生 `board-grove-oled-sh1107` 128×128 黑白 OLED 近似（仅 I2C），不模拟灰度或 SSD1327 协议。
-  仿真通过 `sdkconfig.defaults.wokwi` 启用 `CONFIG_DISPLAY_WOKWI_SH1107`；实板构建使用 SSD1327 四线 SPI 驱动，4 bit 灰度缓冲，白底黑字。
-- 始终白底黑字；上方显示输入点划与候选解码，不再显示 SET 行；状态行固定在屏幕底部，左侧为页码 x/x，右侧为 S xxxMS / D xxxMS（当前模式及字符单位），历史内容排列在其上方。
+  仿真通过 `sdkconfig.defaults.wokwi` 启用 `CONFIG_DISPLAY_WOKWI_SH1107`；实板构建使用 SSD1327 四线 SPI 驱动，4 bit 灰度缓冲，白底、黑字与灰色历史。
+- 始终白底；标题稍大并加粗，输入与状态为黑色，历史为深灰色（SSD1327 灰度 6/15，Wokwi 黑白近似仍用黑色）；上方显示输入点划与候选解码，不再显示 SET 行；状态行固定在屏幕底部，左侧为页码 x/x，右侧为 S xxxMS / D xxxMS（当前模式及字符单位），历史内容排列在其上方。
   右上角小黑点指示可开始新词：初始显示，单键红键按下或双键发送开始时隐藏，信号结束后静默满 7 个锁定单位再显示并保持；按住时隐藏，不再周期闪烁。
 - 支持 A–Z、0–9 及常用标点；未知编码显示 `?`，超过 8 个点划显示 `INVALID`。
   候选解码随输入变化，静默满 3 单位才提交历史；输入中的字符不进历史。

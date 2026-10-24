@@ -26,6 +26,9 @@
 #define WIDTH 128
 #define HEIGHT 128
 #define STRIPE_HEIGHT 16
+#define GRAY_BLACK 0
+#define GRAY_HISTORY 6
+#define GRAY_WHITE 15
 #define WORD_DOT_LEFT (WIDTH - 12)
 #define WORD_DOT_TOP 4
 #define WORD_DOT_SIZE 7
@@ -38,7 +41,7 @@ struct display {
     esp_lcd_panel_io_handle_t io;
     QueueHandle_t frames;
     SemaphoreHandle_t transfer_done;
-    uint16_t *stripe;
+    uint8_t *stripe;
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
     i2c_master_bus_handle_t bus;
     uint8_t pixels[SH1107_BUFFER_SIZE];
@@ -63,9 +66,9 @@ static bool on_transfer_done(esp_lcd_panel_io_handle_t io,
 #endif
 
 static void draw_text(struct display *display, int stripe_top, int left, int text_top,
-                       const char *text, int scale)
+                       const char *text, int scale, uint8_t gray)
 {
-    /* 只绘制与当前渲染条带相交的文字；黑字覆盖白底。 */
+    /* 只绘制与当前渲染条带相交的文字；指定灰度覆盖白底。 */
     for (size_t i = 0; text[i]; ++i) {
         unsigned char character = (unsigned char)text[i];
         if (character < 32 || character > 126) character = '?';
@@ -77,7 +80,7 @@ static void draw_text(struct display *display, int stripe_top, int left, int tex
                 const int column = origin_x + x;
                 if (column < 0 || column >= WIDTH) continue;
                 if (telegraph_font[character - 32][y / scale] & (1U << (4 - x / scale))) {
-                    display->stripe[row * WIDTH + column] = 0;
+                    display->stripe[row * WIDTH + column] = gray;
                 }
             }
         }
@@ -86,7 +89,7 @@ static void draw_text(struct display *display, int stripe_top, int left, int tex
 
 static void centered(struct display *display, int top, int y, const char *text, int scale)
 {
-    draw_text(display, top, (WIDTH - (int)strlen(text) * 6 * scale + scale) / 2, y, text, scale);
+    draw_text(display, top, (WIDTH - (int)strlen(text) * 6 * scale + scale) / 2, y, text, scale, GRAY_BLACK);
 }
 
 static void draw_history_status(struct display *display, int top, int y, int margin,
@@ -97,22 +100,44 @@ static void draw_history_status(struct display *display, int top, int y, int mar
     snprintf(label, sizeof(label), "%u/%u%s%.3s", frame->page ? frame->page : 1,
              frame->pages ? frame->pages : 1, frame->label[0] ? " " : "",
              frame->label);
-    draw_text(display, top, margin, y, label, 1);
+    draw_text(display, top, margin, y, label, 1, GRAY_BLACK);
     snprintf(label, sizeof(label), "%c %luMS", frame->dual_mode ? 'D' : 'S', (unsigned long)frame->character_unit_ms);
-    draw_text(display, top, WIDTH - margin - (int)strlen(label) * 6 + 1, y, label, 1);
+    draw_text(display, top, WIDTH - margin - (int)strlen(label) * 6 + 1, y, label, 1, GRAY_BLACK);
+}
+
+static void draw_title(struct display *display, int top)
+{
+    static const char title[] = "MORSE TELEGRAPH";
+    const int glyph_height = 11;
+    const int pitch = 7;
+    const int left = (WIDTH - ((int)strlen(title) * pitch - 1)) / 2;
+    /* 标题从 9 像素字模增高到 11 像素，并向右扩展 1 像素加粗；保留新词指示空间。 */
+    for (size_t i = 0; title[i]; ++i) {
+        for (int y = 0; y < glyph_height; ++y) {
+            const int row = 2 + y - top;
+            if (row < 0 || row >= STRIPE_HEIGHT) continue;
+            const uint8_t bits = telegraph_font[(unsigned char)title[i] - 32][y * 9 / glyph_height];
+            for (int x = 0; x < 5; ++x) {
+                if (!(bits & (1U << (4 - x)))) continue;
+                const int column = left + (int)i * pitch + x;
+                display->stripe[row * WIDTH + column] = GRAY_BLACK;
+                display->stripe[row * WIDTH + column + 1] = GRAY_BLACK;
+            }
+        }
+    }
 }
 
 static void render_stripe(struct display *display, int top, const display_frame_t *frame)
 {
-    for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = 0xffff;
+    memset(display->stripe, GRAY_WHITE, WIDTH * STRIPE_HEIGHT);
     /* 128×128 保留输入与历史两区；八个点划均可在一行完整展示。 */
-    centered(display, top, 2, "MORSE TELEGRAPH", 1);
+    draw_title(display, top);
     centered(display, top, 16, frame->current_code, 2);
     const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
     centered(display, top, 35, decoded, 2);
     draw_history_status(display, top, HEIGHT - 11, 4, frame);
     for (int row = 0; row < DISPLAY_HISTORY_ROWS; ++row) {
-        draw_text(display, top, 4, 55 + row * 10, frame->history[row], 1);
+        draw_text(display, top, 4, 55 + row * 10, frame->history[row], 1, GRAY_HISTORY);
     }
     /* 右上角小黑点表示可以开始新词，状态完全由输入任务的词间隔决定。 */
     for (int y = 0; y < WORD_DOT_SIZE; ++y) {
@@ -122,7 +147,7 @@ static void render_stripe(struct display *display, int top, const display_frame_
             const int dx = x - WORD_DOT_SIZE / 2;
             const int dy = y - WORD_DOT_SIZE / 2;
             if (frame->word_ready && dx * dx + dy * dy <= WORD_DOT_RADIUS * WORD_DOT_RADIUS) {
-                display->stripe[row * WIDTH + WORD_DOT_LEFT + x] = 0;
+                display->stripe[row * WIDTH + WORD_DOT_LEFT + x] = GRAY_BLACK;
             }
         }
     }
@@ -138,7 +163,7 @@ static esp_err_t draw_frame(struct display *display, const display_frame_t *fram
         /* 共用文字渲染，再转换为 OLED 的纵向 8 像素页；I2C 同步完成后才能复用。 */
         for (int row = 0; row < STRIPE_HEIGHT; ++row) {
             for (int x = 0; x < WIDTH; ++x) {
-                sh1107_set_pixel(display->pixels, x, y + row, display->stripe[row * WIDTH + x] != 0);
+                sh1107_set_pixel(display->pixels, x, y + row, display->stripe[row * WIDTH + x] == GRAY_WHITE);
             }
         }
 #else
@@ -146,7 +171,7 @@ static esp_err_t draw_frame(struct display *display, const display_frame_t *fram
         for (int row = 0; row < STRIPE_HEIGHT; ++row) {
             for (int x = 0; x < WIDTH; ++x) {
                 ssd1327_set_pixel(display->pixels, WIDTH, x, y + row,
-                                   display->stripe[row * WIDTH + x] ? 15 : 0);
+                                   display->stripe[row * WIDTH + x]);
             }
         }
 #endif
@@ -236,7 +261,7 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
 #endif
     display->frames = xQueueCreate(1, sizeof(display_frame_t));
     display->transfer_done = xSemaphoreCreateBinary();
-    display->stripe = malloc(WIDTH * STRIPE_HEIGHT * sizeof(uint16_t));
+    display->stripe = malloc(WIDTH * STRIPE_HEIGHT);
 #ifndef CONFIG_DISPLAY_WOKWI_SH1107
     display->pixels = heap_caps_malloc(SSD1327_BUFFER_SIZE, MALLOC_CAP_DMA);
     if (!display->pixels) goto cleanup;

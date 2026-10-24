@@ -5,20 +5,21 @@
 实板使用侧边排针，通过 GPIO Matrix 路由 SPI，避免焊接背面的 GPIO6/7 焊盘。
 背面 BS1、BS2 接 0，保持 SPI 模式；BS3 为 I2C 地址选择，SPI 不使用。GPIO 配置见组件 Kconfig。
 SSD1327 不兼容 ILI9341 或 SH1107；实板已移除旧 ILI9341 后端。
-Wokwi 构建通过 `CONFIG_DISPLAY_WOKWI_SH1107` 选择 SH1107 128×128 黑白 OLED 近似，不能验证 SSD1327 协议或灰度。
+Wokwi 构建通过 `CONFIG_DISPLAY_WOKWI_SH1107` 选择 SH1107 128×128 黑白 OLED 近似，不能验证 SSD1327 协议或灰度，历史灰字在 Wokwi 中仍显示为黑色。
 仿真仅 I2C：SCL/SDA = GPIO6/7，地址 0x3C、400 kHz，CS/DC/RST 不使用。
 Wokwi 元件见 [官方说明](https://docs.wokwi.com/parts/board-grove-oled-sh1107)，SH1107 驱动使用乐鑫托管组件。
 
 `display_init(config, &handle)` 初始化面板及后台刷新任务。
 `display_show_frame(handle, &frame)` 复制显示快照到单槽队列，立即返回。
-两个后端共用 16 行文字渲染条带。SSD1327 转为 8192 字节 DMA 灰度帧缓冲，偶数 x 存高半字节，0 为黑、15 为白；SH1107 转为 2048 字节纵向页缓冲，通过同步 I2C 刷新。
+标题以 11 像素高、向右扩展 1 像素的粗体绘制，输入和状态文字保持黑色；背景为白色。
+两个后端共用 16 行、每像素 1 字节灰度的文字渲染条带。SSD1327 转为 8192 字节 DMA 灰度帧缓冲，偶数 x 存高半字节，0 为黑、15 为白；SH1107 转为 2048 字节纵向页缓冲，通过同步 I2C 刷新。
 SSD1327 初始化期间先关屏，硬复位、配置寄存器后写入白底再开屏；后台刷新任务等待 DMA 完成后才复用帧缓冲。
 SSD1327 命令及参数均为 DC=0，像素为 DC=1，SPI IO 必须启用 `dc_low_on_param`；窗口列地址按字节（两像素）计算，设置窗口后直接写显存，不发送 RAMWR。
 初始化与重映射参考[微雪官方 OLED_1in5 示例](https://files.waveshare.com/upload/2/2c/OLED_Module_Code.7z)和[模块说明](https://www.waveshare.com/wiki/1.5inch_OLED_Module)。
 新画面可以取消旧刷新，但不影响应用历史；SH1107 转换补偿 Wokwi 模型的 96 列可见原点。
 
 `display_frame_t` 包含当前档位、字符锁定单位、新词指示 `word_ready`、模式 `dual_mode`、输入中的点划及候选字符、历史页码和历史行缓冲（兼容原快照容量）。
-上部显示当前输入，y=55 起为固定历史区域；每行最多 20 个 ASCII 字符，历史格式为 `> {字符或单词} {摩斯码}`，超宽自动换行。
+上部显示当前输入，y=55 起为固定历史区域；每行最多 20 个 ASCII 字符，历史文字使用灰度 6/15（深灰），历史格式为 `> {字符或单词} {摩斯码}`，超宽自动换行。
 不显示 SET 行；状态行固定在屏幕底部，左侧页码和标签 `x/x ABC`，右侧 `S xxxMS` / `D xxxMS`（单键 / 双键模式；y=117）。
 快照字段 `label[4]` 保存三个大写字母或数字及结尾 NUL；空标签不显示额外空格。
 两个后端的历史内容从 y=55 开始，每页 6 行、每行 20 字符；`DISPLAY_HISTORY_ROWS/COLS` 提供当前视口尺寸，
