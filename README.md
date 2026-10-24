@@ -6,8 +6,11 @@
 * 仿真：Wokwi
 * 耗时：从零做到[可用状态](https://github.com/luics/esp32/commit/1f5916c1293f63cfb9cb4fd593e573d0fa2a4800)，学习 ESP32 基础知识和开发环境大概 8h，开发调试 4h
 
+https://github.com/user-attachments/assets/a06b76d6-ec09-439b-b59f-e433b6651ba1
 
-[▶ 观看摩斯码电报机演示（1.5 倍速）](http://sites.bryanxu.top/morse-demo-1.5x-1792854011422.mp4)
+摩斯码电报机演示（2.0 倍速）
+
+[▶ 观看摩斯码电报机演示（未加速）](http://sites.bryanxu.top/morse-demo-1792854441168.mp4)
 
 > 项目说明与开发规范见 [AGENTS.md](AGENTS.md)。  
 > 请勿在本 README 中添加内容；相关说明统一维护在 AGENTS.md。
