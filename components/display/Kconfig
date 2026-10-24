@@ -5,13 +5,14 @@ menu "显示屏配置"
         help
             仿真 SSD1327 屏幕的分辨率与黑白布局，不模拟 16 级灰度或 SSD1327 协议。
             使用 I2C，DISPLAY_SCLK_GPIO 为 SCL，DISPLAY_MOSI_GPIO 为 SDA；
-            不使用 CS/DC/RST。关闭时保留原 ILI9341 实板驱动。
+            不使用 CS/DC/RST。关闭时使用 SSD1327 实板 SPI 驱动。
 
     config DISPLAY_SCLK_GPIO
         int "显示屏时钟 GPIO（SPI SCK / 仿真 I2C SCL）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 6
+        default 6 if DISPLAY_WOKWI_SH1107
+        default 21
         help
             显示屏时钟引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
@@ -19,32 +20,33 @@ menu "显示屏配置"
         int "显示屏数据 GPIO（SPI MOSI / 仿真 I2C SDA）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 7
+        default 7 if DISPLAY_WOKWI_SH1107
+        default 22
         help
             显示屏数据引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
     config DISPLAY_CS_GPIO
-        int "ILI9341 片选 GPIO"
+        int "SSD1327 片选 GPIO"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 18
         help
-            ILI9341 的片选引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+            SSD1327 的片选引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
     config DISPLAY_DC_GPIO
-        int "ILI9341 数据/命令 GPIO"
+        int "SSD1327 数据/命令 GPIO"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 19
         help
-            ILI9341 的数据/命令引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+            SSD1327 的数据/命令引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
     config DISPLAY_RST_GPIO
-        int "ILI9341 复位 GPIO"
+        int "SSD1327 复位 GPIO"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 20
         help
-            ILI9341 的复位引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
+            SSD1327 的复位引脚，须与其他显示、按钮、蜂鸣器和灯珠引脚不同。
 
 endmenu

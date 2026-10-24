@@ -12,7 +12,8 @@
 #include "esp_lcd_sh1107.h"
 #include "sh1107_pixels.h"
 #else
-#include "esp_lcd_ili9341.h"
+#include "ssd1327.h"
+#include "ssd1327_pixels.h"
 #endif
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -22,13 +23,8 @@
 #include "freertos/task.h"
 #include "color_font.h"
 
-#ifdef CONFIG_DISPLAY_WOKWI_SH1107
 #define WIDTH 128
 #define HEIGHT 128
-#else
-#define WIDTH 240
-#define HEIGHT 320
-#endif
 #define STRIPE_HEIGHT 16
 #define WORD_DOT_LEFT (WIDTH - 12)
 #define WORD_DOT_TOP 4
@@ -46,6 +42,8 @@ struct display {
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
     i2c_master_bus_handle_t bus;
     uint8_t pixels[SH1107_BUFFER_SIZE];
+#else
+    uint8_t *pixels;
 #endif
 };
 
@@ -57,23 +55,17 @@ static bool on_transfer_done(esp_lcd_panel_io_handle_t io,
     (void)event;
     struct display *display = context;
     BaseType_t wake = pdFALSE;
-    /* DMA 完成后才允许任务改写行缓冲，避免正在发送的像素被覆盖。 */
+    /* DMA 完成后才允许任务改写灰度帧缓冲，避免正在发送的像素被覆盖。 */
     xSemaphoreGiveFromISR(display->transfer_done, &wake);
     return wake == pdTRUE;
 }
 
 #endif
 
-static uint16_t wire_color(uint16_t rgb565)
-{
-    /* ILI9341 按高字节优先接收 RGB565，ESP32 内存为小端。 */
-    return (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
-}
-
 static void draw_text(struct display *display, int stripe_top, int left, int text_top,
                        const char *text, int scale)
 {
-    /* 只绘制与当前 DMA 条带相交的文字；黑字覆盖白底。 */
+    /* 只绘制与当前渲染条带相交的文字；黑字覆盖白底。 */
     for (size_t i = 0; text[i]; ++i) {
         unsigned char character = (unsigned char)text[i];
         if (character < 32 || character > 126) character = '?';
@@ -112,8 +104,7 @@ static void draw_history_status(struct display *display, int top, int y, int mar
 
 static void render_stripe(struct display *display, int top, const display_frame_t *frame)
 {
-    for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = wire_color(0xffff);
-#ifdef CONFIG_DISPLAY_WOKWI_SH1107
+    for (int i = 0; i < WIDTH * STRIPE_HEIGHT; ++i) display->stripe[i] = 0xffff;
     /* 128×128 保留输入与历史两区；八个点划均可在一行完整展示。 */
     centered(display, top, 2, "MORSE TELEGRAPH", 1);
     centered(display, top, 16, frame->current_code, 2);
@@ -123,15 +114,6 @@ static void render_stripe(struct display *display, int top, const display_frame_
     for (int row = 0; row < DISPLAY_HISTORY_ROWS; ++row) {
         draw_text(display, top, 4, 55 + row * 10, frame->history[row], 1);
     }
-#else
-    centered(display, top, 8, "MORSE TELEGRAPH", 2);
-    centered(display, top, 33, frame->current_code, 3);
-    const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
-    centered(display, top, 71, decoded, 5);
-    draw_history_status(display, top, HEIGHT - 11, 9, frame);
-    /* 历史区域固定在底部，只包含已确认字符；页码由绿键手动切换。 */
-    for (int row = 0; row < 10; ++row) draw_text(display, top, 9, 145 + row * 13, frame->history[row], 1);
-#endif
     /* 右上角小黑点表示可以开始新词，状态完全由输入任务的词间隔决定。 */
     for (int y = 0; y < WORD_DOT_SIZE; ++y) {
         const int row = WORD_DOT_TOP + y - top;
@@ -160,15 +142,22 @@ static esp_err_t draw_frame(struct display *display, const display_frame_t *fram
             }
         }
 #else
-        ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, y, WIDTH,
-                                                     y + STRIPE_HEIGHT, display->stripe),
-                            TAG, "Failed to draw stripe");
-        xSemaphoreTake(display->transfer_done, portMAX_DELAY);
+        /* 灰度显存按行打包；完整渲染后才交给 DMA，取消旧画面不会刷出半帧。 */
+        for (int row = 0; row < STRIPE_HEIGHT; ++row) {
+            for (int x = 0; x < WIDTH; ++x) {
+                ssd1327_set_pixel(display->pixels, WIDTH, x, y + row,
+                                   display->stripe[row * WIDTH + x] ? 15 : 0);
+            }
+        }
 #endif
     }
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
     ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, 0, WIDTH, HEIGHT,
                                                  display->pixels), TAG, "Failed to draw OLED frame");
+#else
+    ESP_RETURN_ON_ERROR(ssd1327_draw_rows(display->io, 0, HEIGHT, display->pixels,
+                                          SSD1327_BUFFER_SIZE), TAG, "Failed to draw OLED frame");
+    xSemaphoreTake(display->transfer_done, portMAX_DELAY);
 #endif
     return ESP_OK;
 }
@@ -184,7 +173,7 @@ static esp_err_t draw_word_indicator(struct display *display, bool visible)
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
             sh1107_set_pixel(display->pixels, WORD_DOT_LEFT + x, WORD_DOT_TOP + y, !black);
 #else
-            display->stripe[y * WORD_DOT_SIZE + x] = black ? 0 : wire_color(0xffff);
+            ssd1327_set_pixel(display->pixels, WIDTH, WORD_DOT_LEFT + x, WORD_DOT_TOP + y, black ? 0 : 15);
 #endif
         }
     }
@@ -193,9 +182,9 @@ static esp_err_t draw_word_indicator(struct display *display, bool visible)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, 0, 0, WIDTH, 16,
                                                  display->pixels), TAG, "Failed to draw OLED word indicator");
 #else
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(display->panel, WORD_DOT_LEFT, WORD_DOT_TOP,
-                                                 WORD_DOT_LEFT + WORD_DOT_SIZE, WORD_DOT_TOP + WORD_DOT_SIZE,
-                                                 display->stripe), TAG, "Failed to draw word indicator");
+    /* 按完整行刷新前 16 行，保留指示点两侧及同区标题，列地址始终以字节对齐。 */
+    ESP_RETURN_ON_ERROR(ssd1327_draw_rows(display->io, 0, 16, display->pixels,
+                                          SSD1327_ROW_BYTES * 16), TAG, "Failed to draw word indicator");
     xSemaphoreTake(display->transfer_done, portMAX_DELAY);
 #endif
     return ESP_OK;
@@ -247,7 +236,12 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
 #endif
     display->frames = xQueueCreate(1, sizeof(display_frame_t));
     display->transfer_done = xSemaphoreCreateBinary();
-    display->stripe = heap_caps_malloc(WIDTH * STRIPE_HEIGHT * sizeof(uint16_t), MALLOC_CAP_DMA);
+    display->stripe = malloc(WIDTH * STRIPE_HEIGHT * sizeof(uint16_t));
+#ifndef CONFIG_DISPLAY_WOKWI_SH1107
+    display->pixels = heap_caps_malloc(SSD1327_BUFFER_SIZE, MALLOC_CAP_DMA);
+    if (!display->pixels) goto cleanup;
+    memset(display->pixels, 0xff, SSD1327_BUFFER_SIZE);
+#endif
     if (!display->frames || !display->transfer_done || !display->stripe) {
         goto cleanup;
     }
@@ -272,32 +266,28 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
     ESP_GOTO_ON_ERROR(esp_lcd_panel_init(display->panel), cleanup, TAG, "OLED commands failed");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_disp_on_off(display->panel, true), cleanup, TAG, "OLED on failed");
 #else
-    /* 只分配 16 行 DMA 缓冲，避免整屏 RGB565 帧占用 150 KiB 内存。 */
+    /* 实板使用 SPI2 和 8192 字节灰度 DMA 帧缓冲，SPI 先以 4 MHz 工作。 */
     const spi_bus_config_t bus = {
         .sclk_io_num = config->sclk_gpio, .mosi_io_num = config->mosi_gpio,
         .miso_io_num = -1, .quadwp_io_num = -1, .quadhd_io_num = -1,
-        .max_transfer_sz = WIDTH * STRIPE_HEIGHT * sizeof(uint16_t),
+        .max_transfer_sz = SSD1327_BUFFER_SIZE,
     };
     ESP_GOTO_ON_ERROR(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO), cleanup, TAG, "SPI init failed");
     bus_ready = true;
     const esp_lcd_panel_io_spi_config_t io_config = {
         .cs_gpio_num = config->cs_gpio, .dc_gpio_num = config->dc_gpio,
-        .spi_mode = 0, .pclk_hz = 40 * 1000 * 1000, .trans_queue_depth = 1,
+        .spi_mode = 0, .pclk_hz = 4 * 1000 * 1000, .trans_queue_depth = 1,
         .lcd_cmd_bits = 8, .lcd_param_bits = 8,
+        .flags.dc_low_on_param = true,
         .on_color_trans_done = on_transfer_done, .user_ctx = display,
     };
     ESP_GOTO_ON_ERROR(esp_lcd_new_panel_io_spi(SPI2_HOST, &io_config, &display->io), cleanup, TAG, "Panel IO init failed");
-    const esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = config->reset_gpio,
-        /* 面板使用 BGR 子像素顺序；绘图缓冲仍使用标准 RGB565。 */
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR, .bits_per_pixel = 16,
-    };
-    ESP_GOTO_ON_ERROR(esp_lcd_new_panel_ili9341(display->io, &panel_config, &display->panel), cleanup, TAG, "Panel init failed");
-    ESP_GOTO_ON_ERROR(esp_lcd_panel_reset(display->panel), cleanup, TAG, "Panel reset failed");
-    ESP_GOTO_ON_ERROR(esp_lcd_panel_init(display->panel), cleanup, TAG, "Panel commands failed");
-    /* 竖屏连接器朝下：设置横向扫描方向，避免文字左右镜像。 */
-    ESP_GOTO_ON_ERROR(esp_lcd_panel_mirror(display->panel, true, false), cleanup, TAG, "Panel orientation failed");
-    ESP_GOTO_ON_ERROR(esp_lcd_panel_disp_on_off(display->panel, true), cleanup, TAG, "Display on failed");
+    ESP_GOTO_ON_ERROR(ssd1327_init(display->io, config->reset_gpio), cleanup, TAG, "SSD1327 init failed");
+    /* 关屏时先写入白底，DMA 完成后开屏，避免上电随机像素。 */
+    ESP_GOTO_ON_ERROR(ssd1327_draw_rows(display->io, 0, HEIGHT, display->pixels,
+                                        SSD1327_BUFFER_SIZE), cleanup, TAG, "OLED clear failed");
+    xSemaphoreTake(display->transfer_done, portMAX_DELAY);
+    ESP_GOTO_ON_ERROR(ssd1327_set_on(display->io, true), cleanup, TAG, "OLED on failed");
 #endif
     /* 独立任务显示最新快照；初始化成功后实例与任务随应用持续运行。 */
     if (xTaskCreate(display_worker, "display", 3072, display, 2, NULL) != pdPASS) {
@@ -309,7 +299,7 @@ esp_err_t display_init(const display_config_t *config, display_handle_t *out_han
 #ifdef CONFIG_DISPLAY_WOKWI_SH1107
     ESP_LOGI(TAG, "Ready: SH1107 128x128 monochrome, I2C 400 kHz (SSD1327 approximation)");
 #else
-    ESP_LOGI(TAG, "Ready: ILI9341 240x320, SPI 40 MHz");
+    ESP_LOGI(TAG, "Ready: SSD1327 128x128, 4-bit grayscale, SPI 4 MHz");
 #endif
     return ESP_OK;
 
@@ -319,6 +309,12 @@ cleanup:
         const esp_err_t err = esp_lcd_panel_del(display->panel);
         if (err != ESP_OK) ESP_LOGW(TAG, "Panel cleanup failed: %s", esp_err_to_name(err));
     }
+#ifndef CONFIG_DISPLAY_WOKWI_SH1107
+    if (display->io) {
+        const esp_err_t err = ssd1327_set_on(display->io, false);
+        if (err != ESP_OK) ESP_LOGW(TAG, "OLED off during cleanup failed: %s", esp_err_to_name(err));
+    }
+#endif
     if (display->io) {
         const esp_err_t err = esp_lcd_panel_io_del(display->io);
         if (err != ESP_OK) ESP_LOGW(TAG, "Panel IO cleanup failed: %s", esp_err_to_name(err));
@@ -336,6 +332,11 @@ cleanup:
 #endif
     if (display->frames) vQueueDelete(display->frames);
     if (display->transfer_done) vSemaphoreDelete(display->transfer_done);
+#ifndef CONFIG_DISPLAY_WOKWI_SH1107
+    free(display->pixels);
+    const esp_err_t reset_error = gpio_reset_pin(config->reset_gpio);
+    if (reset_error != ESP_OK) ESP_LOGW(TAG, "Reset GPIO cleanup failed: %s", esp_err_to_name(reset_error));
+#endif
     free(display->stripe);
     free(display);
     return ret;

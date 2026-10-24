@@ -1,7 +1,17 @@
 menu "摩斯码间隔控制配置"
 
+    config INTERVAL_CONTROL_ENABLED
+        bool "启用间隔电位器 ADC 采样"
+        default y if DISPLAY_WOKWI_SH1107
+        default n
+        help
+            仅在接好电位器时启用，避免悬空 ADC 随机跳档。
+            关闭时不初始化 ADC 或启动采样任务，固定使用 100 ms，
+            不占用电位器 GPIO；Wokwi 默认启用，实板默认关闭。
+
     config INTERVAL_CONTROL_ADC_GPIO
         int "间隔电位器 ADC 引脚"
+        depends on INTERVAL_CONTROL_ENABLED
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 4
@@ -11,6 +21,7 @@ menu "摩斯码间隔控制配置"
 
     config INTERVAL_CONTROL_SAMPLE_INTERVAL_MS
         int "间隔采样间隔（毫秒）"
+        depends on INTERVAL_CONTROL_ENABLED
         range 10 1000
         default 50
         help

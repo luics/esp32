@@ -20,7 +20,12 @@ static inline void test_log(const char *tag, const char *format, ...) { (void)ta
 #define CONFIG_BLINK_RGB_GPIO 8
 #define CONFIG_BEEP_GPIO 3
 #define CONFIG_BEEP_FREQUENCY_HZ 2000
+#ifdef TEST_INTERVAL_DISABLED
+#define CONFIG_INTERVAL_CONTROL_ADC_GPIO 0 /* 未使用的 ADC 配置不应与红键冲突。 */
+#else
+#define CONFIG_INTERVAL_CONTROL_ENABLED 1
 #define CONFIG_INTERVAL_CONTROL_ADC_GPIO 4
+#endif
 #define CONFIG_INTERVAL_CONTROL_SAMPLE_INTERVAL_MS 50
 #define CONFIG_BUTTON_INPUT_RED_GPIO 0
 #define CONFIG_BUTTON_INPUT_GPIO 9
@@ -114,8 +119,21 @@ esp_err_t beep_set_active(bool active){
     else if(sound){durations[stops++]=clock_ms-started_at;}
     sound=active;return ESP_OK;
 }
-esp_err_t interval_control_start(int gpio,uint32_t interval){assert(gpio==4 && interval==50);return ESP_OK;}
-uint32_t interval_control_get_unit_ms(void){return clock_ms>=400 ? 60 : 100;}
+esp_err_t interval_control_start(int gpio,uint32_t interval){
+#ifdef TEST_INTERVAL_DISABLED
+    (void)gpio;(void)interval;assert(!"Disabled potentiometer must not initialize ADC");
+#else
+    assert(gpio==4 && interval==50);
+#endif
+    return ESP_OK;
+}
+uint32_t interval_control_get_unit_ms(void){
+#ifdef TEST_INTERVAL_DISABLED
+    return INTERVAL_CONTROL_DEFAULT_UNIT_MS;
+#else
+    return clock_ms>=400 ? 60 : 100;
+#endif
+}
 esp_err_t display_init(const display_config_t *config,display_handle_t *handle){(void)config;*handle=(void*)1;return ESP_OK;}
 esp_err_t display_show_frame(display_handle_t handle,const display_frame_t *frame){(void)handle;assert(!strcmp(frame->label,"A09"));last_frame=*frame;return ESP_OK;}
 esp_err_t button_input_create_edges(int gpio,button_input_edge_callback_t callback,void *ctx,button_input_handle_t *handle){
@@ -160,6 +178,14 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+#ifdef TEST_INTERVAL_DISABLED
+    clock_ms+=ticks;
+    assert(last_frame.selected_unit_ms==100 && last_frame.character_unit_ms==100);
+    assert(!sound && !light);
+    if(clock_ms>=1000)longjmp(done,1);
+    return;
+#endif
+
     if(!startup_checked){
         assert(clock_ms==0 && last_frame.dual_mode);
         startup_checked=true;
@@ -209,6 +235,9 @@ void vTaskDelay(TickType_t ticks){
 int main(void){
     if(!setjmp(done))app_main();
     free(queue);
+#ifdef TEST_INTERVAL_DISABLED
+    puts("PASS: actual app_main skips ADC initialization, releases unused ADC pin and stays at 100 ms");return 0;
+#endif
     if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
 }
@@ -236,3 +265,6 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     subprocess.run([str(work / "test")], check=True)
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_RENDER_LOAD": "1"})
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DUAL_MODE": "1"})
+
+    subprocess.run(command + ["-DTEST_INTERVAL_DISABLED"], check=True)
+    subprocess.run([str(work / "test")], check=True)

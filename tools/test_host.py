@@ -41,3 +41,5 @@ subprocess.run([sys.executable, str(ROOT / "tests/test_sync_http.py")], check=Tr
 subprocess.run([sys.executable, str(ROOT / "tests/test_sync_tls_timing.py")], check=True)
 
 subprocess.run([sys.executable, str(ROOT / "tests/test_sync_verify_cache.py")], check=True)
+
+subprocess.run([sys.executable, str(ROOT / "tests/test_ssd1327.py")], check=True)

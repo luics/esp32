@@ -4,13 +4,8 @@
 #include "esp_err.h"
 #include "sdkconfig.h"
 
-#ifdef CONFIG_DISPLAY_WOKWI_SH1107
 #define DISPLAY_HISTORY_ROWS 6
 #define DISPLAY_HISTORY_COLS 20
-#else
-#define DISPLAY_HISTORY_ROWS 10
-#define DISPLAY_HISTORY_COLS 37
-#endif
 
 typedef struct display *display_handle_t;
 typedef struct {

@@ -19,3 +19,5 @@ GPIO 及显示配置沿用现有 `CONFIG_*`，初始化与运行错误沿用 `ES
 
 主机验证：在项目根目录运行 `python3 tools/test_host.py`，其中外设替身测试同时编译真实 `app_main` 与本组件。
 固件验证：按 [AGENTS.md](../../AGENTS.md) 的实板/Wokwi 两版流程构建；实板烧录仍需用户授权。
+
+间隔电位器由 `CONFIG_INTERVAL_CONTROL_ENABLED` 控制；关闭时不启动 ADC 采样、不将电位器引脚列为占用，使用固定 100 ms。实板默认关闭，Wokwi 默认启用。

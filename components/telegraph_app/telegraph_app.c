@@ -151,7 +151,10 @@ void telegraph_app_run(void)
         .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
     };
     /* 上电前统一检查引脚，避免任何外设初始化覆盖其他设备。 */
-    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BEEP_GPIO, CONFIG_INTERVAL_CONTROL_ADC_GPIO,
+    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BEEP_GPIO,
+#ifdef CONFIG_INTERVAL_CONTROL_ENABLED
+                        CONFIG_INTERVAL_CONTROL_ADC_GPIO,
+#endif
                         CONFIG_BUTTON_INPUT_RED_GPIO, CONFIG_BUTTON_INPUT_BLACK_GPIO, CONFIG_BUTTON_INPUT_MODE_GPIO,
                         CONFIG_BUTTON_INPUT_GPIO, CONFIG_BUTTON_INPUT_BLUE_GPIO, screen_config.sclk_gpio,
                         screen_config.mosi_gpio,
@@ -167,8 +170,13 @@ void telegraph_app_run(void)
     ESP_ERROR_CHECK(display_init(&screen_config, &screen));
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
     ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ));
+#ifdef CONFIG_INTERVAL_CONTROL_ENABLED
     ESP_ERROR_CHECK(interval_control_start(CONFIG_INTERVAL_CONTROL_ADC_GPIO,
                                            CONFIG_INTERVAL_CONTROL_SAMPLE_INTERVAL_MS));
+#else
+    /* 未接电位器时不读取悬空引脚，沿用组件未启动的固定默认单位。 */
+    ESP_LOGI(TAG, "Interval potentiometer disabled: fixed %u ms", INTERVAL_CONTROL_DEFAULT_UNIT_MS);
+#endif
     QueueHandle_t events = xQueueCreate(64, sizeof(input_event_t));
     ESP_ERROR_CHECK(events ? ESP_OK : ESP_ERR_NO_MEM);
     button_input_handle_t red_button = NULL, history_button = NULL, reset_button = NULL;

@@ -35,8 +35,8 @@ static void update_interval(int raw, bool initial)
     if (initial || band != current_band) {
         current_band = band;
         atomic_store(&current_unit_ms, units[band]);
-        /* 悬空输入可能频繁跳档，运行采样细节仅在调试级别输出。 */
-        ESP_LOGD(TAG, "Interval: %lu ms (ADC %d)", (unsigned long)units[band], raw);
+        /* 首次采样与有效切档输出 INFO，不逐次打印稳定的采样值。 */
+        ESP_LOGI(TAG, "Interval: %lu ms (ADC %d)", (unsigned long)units[band], raw);
     }
 }
 
