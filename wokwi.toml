@@ -1,5 +1,5 @@
 [wokwi]
-# 板载 RGB LED 使用 GPIO8 显示点红/划绿，GPIO5 外接 WS2812 显示模式切换黄光。
+# 板载 RGB LED 使用 GPIO8 显示点红/划绿，GPIO5 外接 WS2812 同步点红/划绿，并优先显示模式切换黄光。
 # 红键 GPIO0（R）、绿键 GPIO1（D）、黄键 GPIO2（M），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
 # PIR 人体运动传感器：VCC 接 5V，OUT 接 GPIO15，GND 共地；固件尚未接入感应逻辑。
 # 构建：eim run "bash tools/build_wokwi.sh build" stable-mcp

@@ -114,14 +114,39 @@ static void sync_feedback(keyer_t *keyer, blink_handle_t led, bool *active, blin
     *color = next_color;
 }
 
-static void restart_if_requested(blink_handle_t led, blink_handle_t mode_led)
+typedef struct {
+    bool active;
+    blink_color_t color;
+    uint64_t mode_until_ms;
+} external_feedback_t;
+
+static void sync_external_feedback(blink_handle_t led, bool signal_active,
+                                   blink_color_t signal_color, external_feedback_t *state)
+{
+    /* 黄光覆盖点划提示 200 ms，到期后立即恢复仍在发送的颜色或灭灯。 */
+    const bool mode_active = now_ms() < state->mode_until_ms;
+    const bool active = mode_active || signal_active;
+    const blink_color_t color = mode_active ? BLINK_COLOR_YELLOW : signal_color;
+    if (active && (!state->active || state->color != color)) {
+        ESP_ERROR_CHECK(blink_set_color(led, color));
+        ESP_LOGI(TAG, "外接 LED GPIO%d 触发：%s（%s）", CONFIG_BLINK_MODE_GPIO,
+                 color == BLINK_COLOR_YELLOW ? "黄光" : (color == BLINK_COLOR_RED ? "红光" : "绿光"),
+                 mode_active ? "模式按钮，200 ms" : "点划发送");
+    } else if (!active && state->active) {
+        ESP_ERROR_CHECK(blink_off(led));
+    }
+    state->active = active;
+    state->color = color;
+}
+
+static void restart_if_requested(blink_handle_t led, blink_handle_t external_led)
 {
     /* 上电时仍按住蓝键则忽略，松开后才接受下一次按下，防止循环重启。 */
     if (gpio_get_level(CONFIG_BUTTON_INPUT_BLUE_GPIO)) atomic_store(&reset_armed, true);
     if (ulTaskNotifyTake(pdTRUE, 0) == 0) return;
     ESP_LOGI(TAG, "Blue reset: restarting through app_main initialization");
     (void)stop_feedback(led);
-    (void)blink_off(mode_led);
+    (void)blink_off(external_led);
     /* 统一复用现有启动流程，避免单独维护一份状态与外设重置逻辑。 */
     esp_restart();
 }
@@ -172,11 +197,11 @@ void telegraph_app_run(void)
         for (size_t j = 0; j < i; ++j) ESP_ERROR_CHECK(pins[i] == pins[j] ? ESP_ERR_INVALID_ARG : ESP_OK);
     }
     display_handle_t screen = NULL;
-    blink_handle_t led = NULL, mode_led = NULL;
+    blink_handle_t led = NULL, external_led = NULL;
     ESP_ERROR_CHECK(display_init(&screen_config, &screen));
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
     /* 外接标准 WS2812 独立使用 GRB，不继承实板板载灯的 RGB 顺序。 */
-    ESP_ERROR_CHECK(blink_create_with_order(CONFIG_BLINK_MODE_GPIO, BLINK_ORDER_GRB, &mode_led));
+    ESP_ERROR_CHECK(blink_create_with_order(CONFIG_BLINK_MODE_GPIO, BLINK_ORDER_GRB, &external_led));
     ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ));
 #ifdef CONFIG_INTERVAL_CONTROL_ENABLED
     ESP_ERROR_CHECK(interval_control_start(CONFIG_INTERVAL_CONTROL_ADC_GPIO,
@@ -216,14 +241,14 @@ void telegraph_app_run(void)
     size_t page = 0;
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
-    uint64_t mode_led_until_ms = 0;
+    external_feedback_t external_feedback = {0};
     bool wait_keys_release = false;
     uint32_t selected = interval_control_get_unit_ms();
     show_state(screen, &keyer, selected, page, label, &frame);
     ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; dot=input, dash=dash, yellow=mode, BOOT=page");
-    ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, mode GPIO%d", CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO);
+    ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, external GPIO%d (dot/dash + mode)", CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO);
     while (true) {
-        restart_if_requested(led, mode_led);
+        restart_if_requested(led, external_led);
         const size_t before = telegraph->morse.count;
         const bool last_word_end = before && telegraph->morse.history[before - 1].word_end;
         bool changed = false;
@@ -234,6 +259,7 @@ void telegraph_app_run(void)
             xQueueReset(events);
             keyer_cancel(&keyer);
             feedback_active = false;
+            sync_external_feedback(external_led, false, feedback_color, &external_feedback);
             wait_keys_release = true;
             changed = true;
             ESP_LOGW(TAG, "Input event queue overflow: muted and canceled incomplete press");
@@ -254,10 +280,10 @@ void telegraph_app_run(void)
                 ++page_requests;
             } else if (event.kind == MODE_TOGGLE) {
                 keyer_toggle_mode(&keyer);
-                /* 模式提示灯独立计时；切换期间仍继续处理板载灯和蜂鸣器。 */
-                ESP_ERROR_CHECK(blink_set_color(mode_led, BLINK_COLOR_YELLOW));
-                mode_led_until_ms = now_ms() + 200;
-                ESP_LOGI(TAG, "外接 LED GPIO%d 触发：黄光 200 ms（模式按钮）", CONFIG_BLINK_MODE_GPIO);
+                /* 重复点击重新计时并记录；黄光优先期间仍继续发送点划。 */
+                external_feedback.mode_until_ms = now_ms() + 200;
+                external_feedback.active = false;
+                sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
                 /* 点击时报告目标模式，发送中明确提示延后生效，避免误报当前状态。 */
                 ESP_LOGI(TAG, "GPIO%d 模式切换：%s%s", CONFIG_BUTTON_INPUT_MODE_GPIO,
                          keyer.target_dual ? "双键模式（D）" : "单键模式（S）",
@@ -269,6 +295,7 @@ void telegraph_app_run(void)
                 ESP_ERROR_CHECK(keyer_edge(&keyer, key, down, event.at_ms, event.selected_unit_ms)
                                  ? ESP_OK : ESP_ERR_NO_MEM);
                 sync_feedback(&keyer, led, &feedback_active, &feedback_color);
+                sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
                 changed = true;
             }
         }
@@ -276,10 +303,7 @@ void telegraph_app_run(void)
         const bool was_dual = keyer.dual_mode;
         ESP_ERROR_CHECK(keyer_advance(&keyer, now_ms(), selected) ? ESP_OK : ESP_ERR_NO_MEM);
         sync_feedback(&keyer, led, &feedback_active, &feedback_color);
-        if (mode_led_until_ms && now_ms() >= mode_led_until_ms) {
-            ESP_ERROR_CHECK(blink_off(mode_led));
-            mode_led_until_ms = 0;
-        }
+        sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
         changed |= was_pressed != telegraph->pressed || was_dual != keyer.dual_mode;
         if (keyer.overflow) {
             /* 缓存满不静默丢键：停止发送并等待两键松开，串口明确报告。 */

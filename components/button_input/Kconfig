@@ -33,8 +33,9 @@ menu "按钮输入配置"
         int "单键/双键模式切换按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
-        default 2
+        default 14
         help
+            实板默认 GPIO14，Wokwi 配置覆盖为 GPIO2。
             模式按钮连接此 GPIO 与 GND，每次按下切换一次模式。
             默认双键模式，长按不重复切换；引脚须与其他外设不同。
 

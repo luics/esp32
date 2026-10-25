@@ -6,7 +6,7 @@
     {"type": "board-esp32-c6-devkitc-1", "id": "esp", "top": 160, "left": 430, "attrs": {}},
     {"type": "wokwi-neopixel", "id": "rgb", "top": 350, "left": 20, "attrs": {}},
     {"type": "wokwi-text", "id": "note", "top": -70, "left": 0, "attrs": {"text": "摩斯码电报机"}},
-    {"type": "wokwi-text", "id": "rgb_label", "top": 385, "left": 0, "attrs": {"text": "模式提示"}},
+    {"type": "wokwi-text", "id": "rgb_label", "top": 385, "left": 0, "attrs": {"text": "点划/模式提示"}},
     {"type": "wokwi-pushbutton", "id": "button_dot", "top": 220, "left": 0, "attrs": {"color": "red", "label": "点/单键", "key": "R"}},
     {"type": "wokwi-pushbutton", "id": "button_dash", "top": 220, "left": 100, "attrs": {"color": "green", "label": "划", "key": "D"}},
     {"type": "wokwi-pushbutton", "id": "button_mode", "top": 320, "left": 60, "attrs": {"color": "yellow", "label": "模式", "key": "M"}},

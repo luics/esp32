@@ -79,6 +79,8 @@ static uint64_t clock_ms;
 static bool sound, light, startup_checked;
 static unsigned starts, stops;
 static bool mode_light;
+static blink_color_t external_color;
+static unsigned external_red, external_green;
 static unsigned mode_flashes;
 static uint64_t mode_started_at;
 static unsigned task_priority = 1;
@@ -119,7 +121,12 @@ esp_err_t blink_create_with_order(int gpio,blink_order_t order,blink_handle_t *h
     assert(gpio==5 && order==BLINK_ORDER_GRB);*handle=(void*)2;return ESP_OK;
 }
 esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){
-    if(handle==(void*)2){assert(color==BLINK_COLOR_YELLOW);mode_light=true;++mode_flashes;mode_started_at=clock_ms;}
+    if(handle==(void*)2){
+        mode_light=true;external_color=color;
+        if(color==BLINK_COLOR_YELLOW){++mode_flashes;mode_started_at=clock_ms;}
+        else if(color==BLINK_COLOR_RED)++external_red;
+        else {assert(color==BLINK_COLOR_GREEN);++external_green;}
+    }
     else {assert(handle==(void*)1 && color!=BLINK_COLOR_YELLOW);last_color=color;light=true;}
     return ESP_OK;
 }
@@ -169,13 +176,14 @@ static void dual_step(TickType_t ticks){
     if(clock_ms>=2980)assert(!last_frame.dual_mode);
     if(clock_ms==40)assert(sound && light && last_color==BLINK_COLOR_RED);
     if(clock_ms==230 || clock_ms==2500)assert(sound && light && last_color==BLINK_COLOR_GREEN);
-    if(clock_ms==2500)assert(mode_light);
+    if(clock_ms==2500)assert(mode_light && external_color==BLINK_COLOR_YELLOW);
     if(clock_ms==2700)assert(!mode_light);
     if(clock_ms==1900)assert(last_frame.word_ready);
     if(clock_ms>=3650){
         const uint64_t expected_starts[]={30,230,630,900,1100,2000,2240,2480,2800,2920,3140};
         const uint64_t expected_durations[]={100,300,100,100,100,180,180,180,30,60,20};
         assert(starts==11 && stops==11 && !sound && !light && !mode_light && mode_flashes==3 && last_frame.word_ready);
+        assert(external_red && external_green);
         for(unsigned i=0;i<11;++i){
             assert(start_times[i]==expected_starts[i]);
             assert(durations[i]==expected_durations[i]);
@@ -195,8 +203,11 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
-    /* 两个真实应用句柄分别采样：外接黄灯严格独立计时，点划仍驱动板载灯。 */
-    assert(mode_light == (mode_flashes && clock_ms < mode_started_at + 200));
+    /* 外接灯镜像点划；黄光优先且到期恢复当前发送颜色，两个句柄不可串色。 */
+    const bool yellow = mode_flashes && clock_ms < mode_started_at + 200;
+    assert(mode_light == (yellow || light));
+    if(yellow)assert(external_color==BLINK_COLOR_YELLOW);
+    else if(light)assert(external_color==last_color);
 #ifdef TEST_INTERVAL_DISABLED
     clock_ms+=ticks;
     assert(last_frame.selected_unit_ms==100 && last_frame.character_unit_ms==100);
@@ -232,7 +243,7 @@ void vTaskDelay(TickType_t ticks){
         assert(starts==14 && stops==14 && durations[0]==30 && durations[1]==200 && durations[2]==500);
         for(unsigned i=3;i<13;++i)assert(durations[i]==20);
         assert(durations[13]==500);
-        assert(mode_flashes==1 && !mode_light);
+        assert(mode_flashes==1 && !mode_light && external_red && external_green);
         longjmp(done,1);
     }
     /* 显示任务优先级为 2：持续就绪时，低优先级输入任务会错过完整短按。
