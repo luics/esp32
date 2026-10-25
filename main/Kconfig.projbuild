@@ -10,12 +10,12 @@ menu "摩斯码电报机配置"
             微雪 ESP32-C6-Zero 使用 RGB 顺序，Wokwi 构建使用 GRB。
 
     config BLINK_MODE_GPIO
-        int "外接模式提示 WS2812 数据引脚"
+        int "外接点划/模式/PIR 提示 WS2812 数据引脚"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 5
         help
             外接 WS2812 DIN 连接 GPIO5，采用 GRB 顺序。
-            每次按下模式按钮闪黄光 200 ms；须与板载灯及其他外设引脚不同。
+            每次按下模式按钮闪黄光 200 ms，空闲时显示 PIR 提示；须与其他外设引脚不同。
 
 endmenu

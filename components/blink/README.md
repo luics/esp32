@@ -18,6 +18,7 @@ ESP_ERROR_CHECK(blink_delete(led));
 - `blink_create_with_order()` 允许为每颗灯指定 `BLINK_ORDER_RGB/GRB`，外接标准 WS2812 使用 GRB。
 - `blink_set_color()` 立即显示红、绿、蓝或黄光，`blink_off()` 立即灭灯；不包含亮灭延时，
   数据发送同步完成，同一句柄须串行使用。
+- `blink_set_rgb()` 立即写入原始 RGB 通道值，供外接灯显示自定义颜色；同一句柄须串行使用。
 - `blink_once_color()` 支持 `BLINK_COLOR_RED/GREEN/BLUE/YELLOW`，对应通道亮度 64/255，
   亮 200 ms、灭 200 ms，再返回；无效颜色返回 `ESP_ERR_INVALID_ARG`。
 - `blink_once()` 保留蓝光 RGB=(0, 0, 64) 的兼容接口。

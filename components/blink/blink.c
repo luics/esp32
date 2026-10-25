@@ -84,6 +84,12 @@ esp_err_t blink_set_color(blink_handle_t handle, blink_color_t color)
     const unsigned red = (color == BLINK_COLOR_RED || color == BLINK_COLOR_YELLOW) ? 64 : 0;
     const unsigned green = (color == BLINK_COLOR_GREEN || color == BLINK_COLOR_YELLOW) ? 64 : 0;
     const unsigned blue = color == BLINK_COLOR_BLUE ? 64 : 0;
+    return blink_set_rgb(handle, red, green, blue);
+}
+
+esp_err_t blink_set_rgb(blink_handle_t handle, uint8_t red, uint8_t green, uint8_t blue)
+{
+    ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
     ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, red, green, blue),
                         TAG, "Failed to set LED color");
     /* 设置颜色只更新缓冲区，refresh 才会发送到灯珠。 */

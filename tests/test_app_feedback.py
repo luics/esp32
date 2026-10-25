@@ -19,6 +19,7 @@ static inline void test_log(const char *tag, const char *format, ...) { (void)ta
 #define ESP_LOGW(...) test_log(__VA_ARGS__)
 #define CONFIG_BLINK_RGB_GPIO 8
 #define CONFIG_BLINK_MODE_GPIO 5
+#define CONFIG_PIR_SENSOR_GPIO 15
 #define CONFIG_BEEP_GPIO 3
 #define CONFIG_BEEP_FREQUENCY_HZ 2000
 #ifdef TEST_INTERVAL_DISABLED
@@ -66,6 +67,7 @@ HARNESS = r'''
 #include "display.h"
 #include "button_input.h"
 #include "interval_control.h"
+#include "pir_sensor.h"
 #include "telegraph_sync.h"
 #include <stdlib.h>
 #include <string.h>
@@ -80,6 +82,7 @@ static bool sound, light, startup_checked;
 static unsigned starts, stops;
 static bool mode_light;
 static blink_color_t external_color;
+static unsigned external_r, external_g, external_b;
 static unsigned external_red, external_green;
 static unsigned mode_flashes;
 static uint64_t mode_started_at;
@@ -130,10 +133,29 @@ esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){
     else {assert(handle==(void*)1 && color!=BLINK_COLOR_YELLOW);last_color=color;light=true;}
     return ESP_OK;
 }
+esp_err_t blink_set_rgb(blink_handle_t handle,uint8_t red,uint8_t green,uint8_t blue){
+    assert(handle==(void*)2);mode_light=true;
+    external_r=red;external_g=green;external_b=blue;
+    if(red==64 && green==64 && blue==0){
+        external_color=BLINK_COLOR_YELLOW;
+        if(!getenv("TEST_PIR_MODE") || (clock_ms>=100 && clock_ms<300)){++mode_flashes;mode_started_at=clock_ms;}
+    }
+    else if(red==64 && green==0 && blue==0){external_color=BLINK_COLOR_RED;++external_red;}
+    else if(red==0 && green==64 && blue==0){external_color=BLINK_COLOR_GREEN;++external_green;}
+    return ESP_OK;
+}
 esp_err_t blink_off(blink_handle_t handle){
     if(handle==(void*)2)mode_light=false;
     else {assert(handle==(void*)1);light=false;}
     return ESP_OK;
+}
+esp_err_t pir_sensor_create(int gpio,pir_sensor_handle_t *handle){assert(gpio==15);*handle=(void*)3;return ESP_OK;}
+esp_err_t pir_sensor_sample(pir_sensor_handle_t handle,uint64_t now,pir_sensor_sample_t *sample){
+    assert(handle==(void*)3);static bool previous;static uint64_t since;
+    bool active=getenv("TEST_PIR_MODE") && now>=50 && now<4650;
+    if(active && !previous)since=now;
+    *sample=(pir_sensor_sample_t){.motion=active,.changed=active!=previous,.active_ms=active?(uint32_t)(now-since):0};
+    previous=active;return ESP_OK;
 }
 esp_err_t beep_init(int gpio,uint32_t hz){assert(gpio==3 && hz==2000);return ESP_OK;}
 esp_err_t beep_set_active(bool active){
@@ -203,6 +225,23 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+    if(getenv("TEST_PIR_MODE")){
+        if(clock_ms==50)assert(mode_light && external_r==64 && external_g==64 && external_b==64);
+        if(clock_ms==110)assert(mode_light && external_color==BLINK_COLOR_YELLOW);
+        if(clock_ms==550)assert(mode_light && external_r==64 && external_g==64 && external_b==64);
+        if(clock_ms==1250)assert(mode_light && external_r==0 && external_g==64 && external_b==0);
+        if(clock_ms==1510)assert(light && sound && mode_light && external_g==0 && external_b==0);
+        if(clock_ms==2150)assert(mode_light && external_r==64 && external_g==64 && external_b==0);
+        if(clock_ms==4150)assert(mode_light && external_r==64 && external_g==0 && external_b==0);
+        if(clock_ms>=4660){assert(!mode_light && !light && !sound && mode_flashes==1);longjmp(done,1);}
+        for(uint64_t until=clock_ms+ticks;clock_ms<until;){
+            ++clock_ms;
+            if(clock_ms==100)mode_press(mode_context);
+            if(clock_ms==1500)red_edge(true,red_context);
+            if(clock_ms==1520)red_edge(false,red_context);
+        }
+        return;
+    }
     /* 外接灯镜像点划；黄光优先且到期恢复当前发送颜色，两个句柄不可串色。 */
     const bool yellow = mode_flashes && clock_ms < mode_started_at + 200;
     assert(mode_light == (yellow || light));
@@ -270,6 +309,7 @@ int main(void){
     puts("PASS: actual app_main skips ADC initialization, releases unused ADC pin and stays at 100 ms");return 0;
 #endif
     if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
+    if(getenv("TEST_PIR_MODE")){puts("PASS: PIR white/green/yellow/red blink, mode and dot override, motion ended LED off");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
 }
 '''
@@ -285,7 +325,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     includes = [work]
     includes += [ROOT / "components" / name / "include"
                  for name in ("blink", "beep", "display", "button_input", "interval_control",
-                              "morse", "telegraph", "telegraph_app", "telegraph_sync")]
+                              "morse", "telegraph", "telegraph_app", "telegraph_sync", "pir_sensor")]
     command = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined"]
     for include in includes:
         command += ["-I", str(include)]
@@ -296,6 +336,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     subprocess.run([str(work / "test")], check=True)
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_RENDER_LOAD": "1"})
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DUAL_MODE": "1"})
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_PIR_MODE": "1"})
 
     subprocess.run(command + ["-DTEST_INTERVAL_DISABLED"], check=True)
     subprocess.run([str(work / "test")], check=True)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,8 @@ esp_err_t blink_create_with_order(int gpio_number, blink_order_t order, blink_ha
 esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle);
 /* 立即设置颜色或灭灯，不包含亮灭延时；数据发送同步完成，同一句柄须串行调用。 */
 esp_err_t blink_set_color(blink_handle_t handle, blink_color_t color);
+/* 设置原始 RGB 亮度，供外接灯显示自定义颜色。 */
+esp_err_t blink_set_rgb(blink_handle_t handle, uint8_t red, uint8_t green, uint8_t blue);
 esp_err_t blink_off(blink_handle_t handle);
 /* 在当前任务中蓝光亮、灭各 200 ms；只能从任务调用，同一句柄需串行使用。 */
 esp_err_t blink_once(blink_handle_t handle);

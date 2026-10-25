@@ -1,0 +1,12 @@
+menu "PIR 人体运动传感器"
+
+    config PIR_SENSOR_GPIO
+        int "PIR OUT 输入引脚"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 15
+        help
+            PIR 的 OUT 接此 GPIO，高电平表示检测到运动。
+            GPIO15 用于微雪 ESP32-C6-Zero 和 Wokwi 仿真。
+
+endmenu

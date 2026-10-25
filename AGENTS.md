@@ -22,6 +22,7 @@ repository when they override this baseline.
 | 复位按钮（蓝） | GPIO11 ↔ GND；配置项 `CONFIG_BUTTON_INPUT_BLUE_GPIO` |
 | 板载点划 RGB LED | GPIO8；实板 RGB，Wokwi GRB；点红、划绿 |
 | 外接点划/模式提示 WS2812 DIN | GPIO5；GRB；点红、划绿；模式按钮每次按下优先闪黄光 200 ms，到期恢复发送颜色或灭灯 |
+| PIR 人体运动传感器 | VCC→5V，GND→公共地，OUT→GPIO15；高电平表示运动，按模块丝印确认实际引脚位置与 OUT 电平 |
 | 无源低电流压电蜂鸣器 | 正极 GPIO3，负极 GND；2 kHz，独占 LEDC 低速 timer0/channel0 |
 | 间隔电位器 | 两端 3V3 / GND，滑臂 GPIO4 / ADC1 CH4；启用 `CONFIG_INTERVAL_CONTROL_ENABLED` 后读取，实板默认关闭、Wokwi 默认启用 |
 | SSD1327 CLK / DIN / CS / DC / RST | GPIO21 / 22 / 18 / 19 / 20；侧边排针，独占 SPI2、4 MHz；VCC→3V3，BS1/BS2→0 |
@@ -44,8 +45,11 @@ repository when they override this baseline.
 - 蓝键不经过点划 FIFO：先关闭声光，再 `esp_restart()`，复用 `app_main()` 初始化，
   清空输入、边沿事件与历史，恢复固定 100 ms（启用电位器时重新读取旋钮）并恢复新词指示。长按跨重启等待松开再使能，避免循环重启；复位时松开 BOOT。
 - Wokwi 使用 DevKitC-1，其 GPIO8 板载 RGB 灯表示点划反馈；独立 NeoPixel 接 GPIO5 表示外接点划/模式提示灯，不复现完整实板。
+  PIR 使用 `wokwi-pir-motion-sensor`，OUT 接 GPIO15，点击元件后通过 Simulate Motion 触发。
   标题为“摩斯码电报机”，功能标签仅显示功能名称，不展示 GPIO 编号；R/D/M 为点键/划键/模式切换快捷键。仿真不额外放置独立历史翻页和复位按钮；历史仍可通过开发板 BOOT 翻页。
   保留 UART/USB Serial-JTAG 日志；板上常亮红色电源灯与 WS2812 信号灯不同。
+- PIR 电平变化输出开始/结束日志。GPIO5 空闲时按连续高电平时间分四档闪烁：0–1 秒白光（周期 500 ms）、1–2 秒绿光（400 ms）、2–3 秒黄光（300 ms）、3 秒起红光（150 ms）；亮灭各半周期，低电平立即结束并归零。
+  这是二值 PIR 的活动时长代理，不是运动幅度测量；模式黄光优先，其次点划颜色，最后 PIR 闪光，板载 GPIO8 不受 PIR 影响。
 - 调整 Wokwi 布局与走线时，优先减少线与元件的交叉，其次减少线与线的交叉。
 - 所有走线优先保持平直；需要转弯时，在满足上述避让优先级的前提下，尽量减少转角。
 
@@ -70,6 +74,7 @@ repository when they override this baseline.
 - `components/morse/`：纯 C 编解码、字符/词间隔、完整历史与文本分页，公共接口位于 `include/`。
 - `components/telegraph/`：纯 C 单键识别与双键发送状态机，公开依赖 `morse`。
 - `components/telegraph_app/`：外设初始化、边沿队列、声光同步、显示快照与复位调度，对外仅提供运行入口。
+- `components/pir_sensor/`：配置 PIR 数字输入、采样电平并仅在变化时记录日志；活动程度和 GPIO5 灯的优先级由 `telegraph_app` 处理。
 - 外设组件继续负责各自驱动；新增业务逻辑按上述职责归属，组件接口和使用约定见各自 README。
 
 ### 构建与验证
@@ -96,6 +101,7 @@ python3 tools/test_host.py
 - 输入 `.... . .-.. .-.. --- / .-- --- .-. .-.. -..` 得到 HELLO WORLD；检查 3/7 单位提交、
   当前输入不进历史、字符/词分组、BOOT 手动循环翻页及空闲时不自动翻页；小黑点初始显示、R 按住隐藏、松开后满 7 单位才显示，换档和翻页不重置静默。
 - 确认上电默认 D，M 可切至 S 再切回 D；快速交替点击 R/D，验证 FIFO、1/3 单位声光和 1 单位静默；长按重复，松开停止重复且当前信号完整结束。
+  点击 Wokwi PIR 的 Simulate Motion，确认起止日志、GPIO5 依次显示白/绿/黄/红并加快闪烁；期间 M 显示 200 ms 黄光、点划显示对应颜色，PIR 结束后灯恢复点划或熄灭。
   检查四档速度、字符内换档锁定、同时长按交替、发送中切换、S 下黑键无效、缓存溢出恢复。
 - 蓝键在空闲、红键按住发声、边沿积压或双键排队时均能关闭声光并复位；历史归零、固定 100 ms 或已启用的旋钮实际档位恢复、新词指示显示。
   长按跨重启只重启一次，松开再按可再次复位。

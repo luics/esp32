@@ -8,6 +8,7 @@
 #include "display.h"
 #include "button_input.h"
 #include "interval_control.h"
+#include "pir_sensor.h"
 #include "morse.h"
 #include "keyer.h"
 #include "telegraph_sync.h"
@@ -116,27 +117,53 @@ static void sync_feedback(keyer_t *keyer, blink_handle_t led, bool *active, blin
 
 typedef struct {
     bool active;
-    blink_color_t color;
+    uint8_t red, green, blue;
     uint64_t mode_until_ms;
 } external_feedback_t;
 
-static void sync_external_feedback(blink_handle_t led, bool signal_active,
-                                   blink_color_t signal_color, external_feedback_t *state)
+static unsigned pir_feedback_level(uint32_t active_ms)
 {
-    /* 黄光覆盖点划提示 200 ms，到期后立即恢复仍在发送的颜色或灭灯。 */
+    const unsigned level = active_ms / 1000;
+    return level < 3 ? level : 3;
+}
+
+static void sync_external_feedback(blink_handle_t led, bool signal_active,
+                                   blink_color_t signal_color, const pir_sensor_sample_t *motion,
+                                   external_feedback_t *state)
+{
+    /* 模式黄光优先，随后是点划发送；空闲时按 PIR 持续时间显示四档闪光。 */
     const bool mode_active = now_ms() < state->mode_until_ms;
-    const bool active = mode_active || signal_active;
-    const blink_color_t color = mode_active ? BLINK_COLOR_YELLOW : signal_color;
-    if (active && (!state->active || state->color != color)) {
-        ESP_ERROR_CHECK(blink_set_color(led, color));
-        ESP_LOGI(TAG, "外接 LED GPIO%d 触发：%s（%s）", CONFIG_BLINK_MODE_GPIO,
-                 color == BLINK_COLOR_YELLOW ? "黄光" : (color == BLINK_COLOR_RED ? "红光" : "绿光"),
-                 mode_active ? "模式按钮，200 ms" : "点划发送");
+    uint8_t red = 0, green = 0, blue = 0;
+    bool active = false;
+    if (mode_active) {
+        active = true;
+        red = green = 64;
+    } else if (signal_active) {
+        active = true;
+        red = signal_color == BLINK_COLOR_RED ? 64 : 0;
+        green = signal_color == BLINK_COLOR_GREEN ? 64 : 0;
+    } else if (motion->motion) {
+        /* PIR 仅输出高低电平，用高电平持续时间表示活动档位。 */
+        static const uint8_t colors[4][3] = {
+            {64, 64, 64}, {0, 64, 0}, {64, 64, 0}, {64, 0, 0},
+        };
+        static const uint16_t periods_ms[4] = {500, 400, 300, 150};
+        const unsigned level = pir_feedback_level(motion->active_ms);
+        const uint16_t period = periods_ms[level];
+        active = motion->active_ms % period < period / 2;
+        red = colors[level][0];
+        green = colors[level][1];
+        blue = colors[level][2];
+    }
+    if (active && (!state->active || state->red != red || state->green != green || state->blue != blue)) {
+        ESP_ERROR_CHECK(blink_set_rgb(led, red, green, blue));
     } else if (!active && state->active) {
         ESP_ERROR_CHECK(blink_off(led));
     }
     state->active = active;
-    state->color = color;
+    state->red = red;
+    state->green = green;
+    state->blue = blue;
 }
 
 static void restart_if_requested(blink_handle_t led, blink_handle_t external_led)
@@ -182,7 +209,8 @@ void telegraph_app_run(void)
         .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
     };
     /* 上电前统一检查引脚，避免任何外设初始化覆盖其他设备。 */
-    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO, CONFIG_BEEP_GPIO,
+    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO, CONFIG_PIR_SENSOR_GPIO,
+                        CONFIG_BEEP_GPIO,
 #ifdef CONFIG_INTERVAL_CONTROL_ENABLED
                         CONFIG_INTERVAL_CONTROL_ADC_GPIO,
 #endif
@@ -198,10 +226,12 @@ void telegraph_app_run(void)
     }
     display_handle_t screen = NULL;
     blink_handle_t led = NULL, external_led = NULL;
+    pir_sensor_handle_t pir = NULL;
     ESP_ERROR_CHECK(display_init(&screen_config, &screen));
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
     /* 外接标准 WS2812 独立使用 GRB，不继承实板板载灯的 RGB 顺序。 */
     ESP_ERROR_CHECK(blink_create_with_order(CONFIG_BLINK_MODE_GPIO, BLINK_ORDER_GRB, &external_led));
+    ESP_ERROR_CHECK(pir_sensor_create(CONFIG_PIR_SENSOR_GPIO, &pir));
     ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ));
 #ifdef CONFIG_INTERVAL_CONTROL_ENABLED
     ESP_ERROR_CHECK(interval_control_start(CONFIG_INTERVAL_CONTROL_ADC_GPIO,
@@ -242,11 +272,14 @@ void telegraph_app_run(void)
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
     external_feedback_t external_feedback = {0};
+    pir_sensor_sample_t motion = {0};
+    int motion_level = -1;
     bool wait_keys_release = false;
     uint32_t selected = interval_control_get_unit_ms();
     show_state(screen, &keyer, selected, page, label, &frame);
     ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; dot=input, dash=dash, yellow=mode, BOOT=page");
-    ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, external GPIO%d (dot/dash + mode)", CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO);
+    ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, external GPIO%d (dot/dash + mode + PIR GPIO%d)",
+             CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO, CONFIG_PIR_SENSOR_GPIO);
     while (true) {
         restart_if_requested(led, external_led);
         const size_t before = telegraph->morse.count;
@@ -259,7 +292,7 @@ void telegraph_app_run(void)
             xQueueReset(events);
             keyer_cancel(&keyer);
             feedback_active = false;
-            sync_external_feedback(external_led, false, feedback_color, &external_feedback);
+            sync_external_feedback(external_led, false, feedback_color, &motion, &external_feedback);
             wait_keys_release = true;
             changed = true;
             ESP_LOGW(TAG, "Input event queue overflow: muted and canceled incomplete press");
@@ -283,7 +316,8 @@ void telegraph_app_run(void)
                 /* 重复点击重新计时并记录；黄光优先期间仍继续发送点划。 */
                 external_feedback.mode_until_ms = now_ms() + 200;
                 external_feedback.active = false;
-                sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
+                sync_external_feedback(external_led, feedback_active, feedback_color, &motion, &external_feedback);
+                ESP_LOGI(TAG, "外接 LED GPIO%d：模式黄光 200 ms", CONFIG_BLINK_MODE_GPIO);
                 /* 点击时报告目标模式，发送中明确提示延后生效，避免误报当前状态。 */
                 ESP_LOGI(TAG, "GPIO%d 模式切换：%s%s", CONFIG_BUTTON_INPUT_MODE_GPIO,
                          keyer.target_dual ? "双键模式（D）" : "单键模式（S）",
@@ -295,7 +329,7 @@ void telegraph_app_run(void)
                 ESP_ERROR_CHECK(keyer_edge(&keyer, key, down, event.at_ms, event.selected_unit_ms)
                                  ? ESP_OK : ESP_ERR_NO_MEM);
                 sync_feedback(&keyer, led, &feedback_active, &feedback_color);
-                sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
+                sync_external_feedback(external_led, feedback_active, feedback_color, &motion, &external_feedback);
                 changed = true;
             }
         }
@@ -303,7 +337,15 @@ void telegraph_app_run(void)
         const bool was_dual = keyer.dual_mode;
         ESP_ERROR_CHECK(keyer_advance(&keyer, now_ms(), selected) ? ESP_OK : ESP_ERR_NO_MEM);
         sync_feedback(&keyer, led, &feedback_active, &feedback_color);
-        sync_external_feedback(external_led, feedback_active, feedback_color, &external_feedback);
+        ESP_ERROR_CHECK(pir_sensor_sample(pir, now_ms(), &motion));
+        const int next_motion_level = motion.motion ? (int)pir_feedback_level(motion.active_ms) : -1;
+        if (next_motion_level != motion_level && next_motion_level >= 0) {
+            static const char *const colors[] = {"white", "green", "yellow", "red"};
+            ESP_LOGI(TAG, "PIR activity level %d/4: GPIO%d LED %s blink", next_motion_level + 1,
+                     CONFIG_BLINK_MODE_GPIO, colors[next_motion_level]);
+        }
+        motion_level = next_motion_level;
+        sync_external_feedback(external_led, feedback_active, feedback_color, &motion, &external_feedback);
         changed |= was_pressed != telegraph->pressed || was_dual != keyer.dual_mode;
         if (keyer.overflow) {
             /* 缓存满不静默丢键：停止发送并等待两键松开，串口明确报告。 */
