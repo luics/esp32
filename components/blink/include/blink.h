@@ -12,7 +12,13 @@ typedef enum {
     BLINK_COLOR_RED,
     BLINK_COLOR_GREEN,
     BLINK_COLOR_BLUE,
+    BLINK_COLOR_YELLOW,
 } blink_color_t;
+
+typedef enum { BLINK_ORDER_RGB, BLINK_ORDER_GRB } blink_order_t;
+
+/* 创建指定颜色顺序的灯实例，使板载灯与外接灯可以独立配置。 */
+esp_err_t blink_create_with_order(int gpio_number, blink_order_t order, blink_handle_t *out_handle);
 
 /* 创建单颗 WS2812（数据顺序由组件 Kconfig 选择），并将其熄灭；成功后由调用方持有句柄。 */
 esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle);

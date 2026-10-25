@@ -1,14 +1,21 @@
 menu "摩斯码电报机配置"
 
     config BLINK_RGB_GPIO
-        int "WS2812 RGB LED 数据引脚"
-
+        int "板载点划 RGB LED 数据引脚"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 8
         help
-            微雪 ESP32-C6-Zero 板载单颗 WS2812 的 DIN 连接 GPIO8，
-            使用 RGB 数据顺序，由 RMT 外设驱动，无需外接 LED 或电阻。
-            更换开发板时请核对数据引脚和灯珠的颜色顺序。
+            板载灯连接 GPIO8：点显示红光，划显示绿光。
+            微雪 ESP32-C6-Zero 使用 RGB 顺序，Wokwi 构建使用 GRB。
+
+    config BLINK_MODE_GPIO
+        int "外接模式提示 WS2812 数据引脚"
+        range 0 30 if IDF_TARGET_ESP32C6
+        range 0 48
+        default 5
+        help
+            外接 WS2812 DIN 连接 GPIO5，采用 GRB 顺序。
+            每次按下模式按钮闪黄光 200 ms；须与板载灯及其他外设引脚不同。
 
 endmenu

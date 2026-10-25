@@ -20,22 +20,22 @@ menu "按钮输入配置"
             引脚须与绿色按钮及灯珠数据引脚不同。
 
     config BUTTON_INPUT_BLACK_GPIO
-        int "黑色双键模式划按钮 GPIO（低电平按下）"
+        int "双键模式划按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 1
         help
-            黑色按钮连接此 GPIO 与 GND，复用内部上拉与消抖。
+            划按钮连接此 GPIO 与 GND，复用内部上拉与消抖。
             仅双键模式有效：按下缓存标准划，长按连续重复。
             引脚须与其他按钮和外设不同。
 
     config BUTTON_INPUT_MODE_GPIO
-        int "灰色单键/双键模式切换按钮 GPIO（低电平按下）"
+        int "单键/双键模式切换按钮 GPIO（低电平按下）"
         range 0 30 if IDF_TARGET_ESP32C6
         range 0 48
         default 2
         help
-            灰色按钮连接此 GPIO 与 GND，每次按下切换一次模式。
+            模式按钮连接此 GPIO 与 GND，每次按下切换一次模式。
             默认双键模式，长按不重复切换；引脚须与其他外设不同。
 
     config BUTTON_INPUT_BLUE_GPIO

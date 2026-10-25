@@ -52,7 +52,7 @@ static void on_black_edge(bool pressed, void *context)
     post_input((QueueHandle_t)context, pressed ? BLACK_DOWN : BLACK_UP);
 }
 
-static void on_mode_press(void *context)
+static void on_mode_click(void *context)
 {
     post_input((QueueHandle_t)context, MODE_TOGGLE);
 }
@@ -102,20 +102,26 @@ static void sync_feedback(keyer_t *keyer, blink_handle_t led, bool *active, blin
             t->pressed_ms = now_ms();
             keyer->signal_end_ms = t->pressed_ms + (keyer->symbol == '.' ? 1ULL : 3ULL) * t->pressed_unit_ms;
         }
+        /* 只记录实际点亮与切色，避免持续按住时重复刷日志。 */
+        ESP_LOGI(TAG, "板载 LED GPIO%d 触发：%s（%s）", CONFIG_BLINK_RGB_GPIO,
+                 next_color == BLINK_COLOR_RED ? "红光" : "绿光",
+                 keyer->dual_mode ? (keyer->symbol == '.' ? "双键点" : "双键划") : "单键输入");
     } else if (t->pressed && *color != next_color) {
         ESP_ERROR_CHECK(blink_set_color(led, next_color));
+        ESP_LOGI(TAG, "板载 LED GPIO%d 触发：绿光（单键长按达到划阈值）", CONFIG_BLINK_RGB_GPIO);
     }
     *active = t->pressed;
     *color = next_color;
 }
 
-static void restart_if_requested(blink_handle_t led)
+static void restart_if_requested(blink_handle_t led, blink_handle_t mode_led)
 {
     /* 上电时仍按住蓝键则忽略，松开后才接受下一次按下，防止循环重启。 */
     if (gpio_get_level(CONFIG_BUTTON_INPUT_BLUE_GPIO)) atomic_store(&reset_armed, true);
     if (ulTaskNotifyTake(pdTRUE, 0) == 0) return;
     ESP_LOGI(TAG, "Blue reset: restarting through app_main initialization");
     (void)stop_feedback(led);
+    (void)blink_off(mode_led);
     /* 统一复用现有启动流程，避免单独维护一份状态与外设重置逻辑。 */
     esp_restart();
 }
@@ -151,7 +157,7 @@ void telegraph_app_run(void)
         .reset_gpio = CONFIG_DISPLAY_RST_GPIO,
     };
     /* 上电前统一检查引脚，避免任何外设初始化覆盖其他设备。 */
-    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BEEP_GPIO,
+    const int pins[] = {CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO, CONFIG_BEEP_GPIO,
 #ifdef CONFIG_INTERVAL_CONTROL_ENABLED
                         CONFIG_INTERVAL_CONTROL_ADC_GPIO,
 #endif
@@ -166,9 +172,11 @@ void telegraph_app_run(void)
         for (size_t j = 0; j < i; ++j) ESP_ERROR_CHECK(pins[i] == pins[j] ? ESP_ERR_INVALID_ARG : ESP_OK);
     }
     display_handle_t screen = NULL;
-    blink_handle_t led = NULL;
+    blink_handle_t led = NULL, mode_led = NULL;
     ESP_ERROR_CHECK(display_init(&screen_config, &screen));
     ESP_ERROR_CHECK(blink_create(CONFIG_BLINK_RGB_GPIO, &led));
+    /* 外接标准 WS2812 独立使用 GRB，不继承实板板载灯的 RGB 顺序。 */
+    ESP_ERROR_CHECK(blink_create_with_order(CONFIG_BLINK_MODE_GPIO, BLINK_ORDER_GRB, &mode_led));
     ESP_ERROR_CHECK(beep_init(CONFIG_BEEP_GPIO, CONFIG_BEEP_FREQUENCY_HZ));
 #ifdef CONFIG_INTERVAL_CONTROL_ENABLED
     ESP_ERROR_CHECK(interval_control_start(CONFIG_INTERVAL_CONTROL_ADC_GPIO,
@@ -185,7 +193,7 @@ void telegraph_app_run(void)
     button_input_handle_t black_button = NULL, mode_button = NULL;
     ESP_ERROR_CHECK(button_input_create_edges(CONFIG_BUTTON_INPUT_BLACK_GPIO, on_black_edge,
                                               events, &black_button));
-    ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_MODE_GPIO, on_mode_press,
+    ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_MODE_GPIO, on_mode_click,
                                         events, &mode_button));
     ESP_ERROR_CHECK(button_input_create(CONFIG_BUTTON_INPUT_GPIO, on_history_press,
                                         events, &history_button));
@@ -208,12 +216,14 @@ void telegraph_app_run(void)
     size_t page = 0;
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
+    uint64_t mode_led_until_ms = 0;
     bool wait_keys_release = false;
     uint32_t selected = interval_control_get_unit_ms();
     show_state(screen, &keyer, selected, page, label, &frame);
-    ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; red=input, black=dash, gray=mode, green=page");
+    ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; dot=input, dash=dash, yellow=mode, BOOT=page");
+    ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, mode GPIO%d", CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO);
     while (true) {
-        restart_if_requested(led);
+        restart_if_requested(led, mode_led);
         const size_t before = telegraph->morse.count;
         const bool last_word_end = before && telegraph->morse.history[before - 1].word_end;
         bool changed = false;
@@ -244,6 +254,10 @@ void telegraph_app_run(void)
                 ++page_requests;
             } else if (event.kind == MODE_TOGGLE) {
                 keyer_toggle_mode(&keyer);
+                /* 模式提示灯独立计时；切换期间仍继续处理板载灯和蜂鸣器。 */
+                ESP_ERROR_CHECK(blink_set_color(mode_led, BLINK_COLOR_YELLOW));
+                mode_led_until_ms = now_ms() + 200;
+                ESP_LOGI(TAG, "外接 LED GPIO%d 触发：黄光 200 ms（模式按钮）", CONFIG_BLINK_MODE_GPIO);
                 /* 点击时报告目标模式，发送中明确提示延后生效，避免误报当前状态。 */
                 ESP_LOGI(TAG, "GPIO%d 模式切换：%s%s", CONFIG_BUTTON_INPUT_MODE_GPIO,
                          keyer.target_dual ? "双键模式（D）" : "单键模式（S）",
@@ -262,6 +276,10 @@ void telegraph_app_run(void)
         const bool was_dual = keyer.dual_mode;
         ESP_ERROR_CHECK(keyer_advance(&keyer, now_ms(), selected) ? ESP_OK : ESP_ERR_NO_MEM);
         sync_feedback(&keyer, led, &feedback_active, &feedback_color);
+        if (mode_led_until_ms && now_ms() >= mode_led_until_ms) {
+            ESP_ERROR_CHECK(blink_off(mode_led));
+            mode_led_until_ms = 0;
+        }
         changed |= was_pressed != telegraph->pressed || was_dual != keyer.dual_mode;
         if (keyer.overflow) {
             /* 缓存满不静默丢键：停止发送并等待两键松开，串口明确报告。 */

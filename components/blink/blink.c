@@ -14,8 +14,18 @@ struct blink {
     led_strip_handle_t strip;
 };
 
-/* 初始化后立即灭灯，后续闪光复用同一个 RMT 通道。 */
+/* 兼容接口沿用板载灯的构建配置；外接灯可单独指定颜色顺序。 */
 esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle)
+{
+#ifdef CONFIG_BLINK_LED_ORDER_GRB
+    return blink_create_with_order(gpio_number, BLINK_ORDER_GRB, out_handle);
+#else
+    return blink_create_with_order(gpio_number, BLINK_ORDER_RGB, out_handle);
+#endif
+}
+
+/* 初始化后立即灭灯，后续闪光复用同一个 RMT 通道。 */
+esp_err_t blink_create_with_order(int gpio_number, blink_order_t order, blink_handle_t *out_handle)
 {
     ESP_RETURN_ON_FALSE(out_handle, ESP_ERR_INVALID_ARG, TAG, "Missing output handle");
     *out_handle = NULL;
@@ -23,16 +33,15 @@ esp_err_t blink_create(int gpio_number, blink_handle_t *out_handle)
     ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(gpio_number), ESP_ERR_INVALID_ARG,
                         TAG, "Invalid output GPIO %d", gpio_number);
 
-    /* 实板使用 RGB；Wokwi 独立构建选择 GRB，使逻辑颜色与显示颜色一致。 */
+    ESP_RETURN_ON_FALSE(order == BLINK_ORDER_RGB || order == BLINK_ORDER_GRB,
+                        ESP_ERR_INVALID_ARG, TAG, "Invalid LED color order");
+    /* 每颗灯各持有一个 RMT 驱动与颜色缓冲，互不覆盖输出。 */
     const led_strip_config_t strip_config = {
         .strip_gpio_num = gpio_number,
         .max_leds = 1,
         .led_model = LED_MODEL_WS2812,
-#ifdef CONFIG_BLINK_LED_ORDER_GRB
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
-#else
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,
-#endif
+        .color_component_format = order == BLINK_ORDER_GRB
+            ? LED_STRIP_COLOR_COMPONENT_FMT_GRB : LED_STRIP_COLOR_COMPONENT_FMT_RGB,
     };
     /* RMT 产生 WS2812 所需时序，10 MHz 分辨率对应每个节拍 100 ns。 */
     const led_strip_rmt_config_t rmt_config = {
@@ -69,11 +78,11 @@ esp_err_t blink_once(blink_handle_t handle)
 esp_err_t blink_set_color(blink_handle_t handle, blink_color_t color)
 {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "Invalid LED handle");
-    ESP_RETURN_ON_FALSE(color >= BLINK_COLOR_RED && color <= BLINK_COLOR_BLUE,
+    ESP_RETURN_ON_FALSE(color >= BLINK_COLOR_RED && color <= BLINK_COLOR_YELLOW,
                         ESP_ERR_INVALID_ARG, TAG, "Invalid LED color");
     /* 仅更新颜色并发送，时长交给调用方，以便等待过程被新按钮事件唤醒。 */
-    const unsigned red = color == BLINK_COLOR_RED ? 64 : 0;
-    const unsigned green = color == BLINK_COLOR_GREEN ? 64 : 0;
+    const unsigned red = (color == BLINK_COLOR_RED || color == BLINK_COLOR_YELLOW) ? 64 : 0;
+    const unsigned green = (color == BLINK_COLOR_GREEN || color == BLINK_COLOR_YELLOW) ? 64 : 0;
     const unsigned blue = color == BLINK_COLOR_BLUE ? 64 : 0;
     ESP_RETURN_ON_ERROR(led_strip_set_pixel(handle->strip, 0, red, green, blue),
                         TAG, "Failed to set LED color");

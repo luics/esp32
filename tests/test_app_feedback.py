@@ -18,6 +18,7 @@ static inline void test_log(const char *tag, const char *format, ...) { (void)ta
 #define ESP_LOGI(...) test_log(__VA_ARGS__)
 #define ESP_LOGW(...) test_log(__VA_ARGS__)
 #define CONFIG_BLINK_RGB_GPIO 8
+#define CONFIG_BLINK_MODE_GPIO 5
 #define CONFIG_BEEP_GPIO 3
 #define CONFIG_BEEP_FREQUENCY_HZ 2000
 #ifdef TEST_INTERVAL_DISABLED
@@ -77,6 +78,9 @@ static QueueHandle_t queue;
 static uint64_t clock_ms;
 static bool sound, light, startup_checked;
 static unsigned starts, stops;
+static bool mode_light;
+static unsigned mode_flashes;
+static uint64_t mode_started_at;
 static unsigned task_priority = 1;
 static uint64_t started_at, durations[14], start_times[14];
 static blink_color_t last_color;
@@ -111,8 +115,19 @@ uint32_t esp_random(void){static unsigned index; const uint32_t values[]={0,26,3
 esp_err_t telegraph_sync_start(const char label[4]){assert(!strcmp(label,"A09"));return ESP_OK;}
 esp_err_t telegraph_sync_history(const morse_t *morse){assert(morse->count);return ESP_OK;}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
-esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){(void)handle;last_color=color;light=true;return ESP_OK;}
-esp_err_t blink_off(blink_handle_t handle){(void)handle;light=false;return ESP_OK;}
+esp_err_t blink_create_with_order(int gpio,blink_order_t order,blink_handle_t *handle){
+    assert(gpio==5 && order==BLINK_ORDER_GRB);*handle=(void*)2;return ESP_OK;
+}
+esp_err_t blink_set_color(blink_handle_t handle,blink_color_t color){
+    if(handle==(void*)2){assert(color==BLINK_COLOR_YELLOW);mode_light=true;++mode_flashes;mode_started_at=clock_ms;}
+    else {assert(handle==(void*)1 && color!=BLINK_COLOR_YELLOW);last_color=color;light=true;}
+    return ESP_OK;
+}
+esp_err_t blink_off(blink_handle_t handle){
+    if(handle==(void*)2)mode_light=false;
+    else {assert(handle==(void*)1);light=false;}
+    return ESP_OK;
+}
 esp_err_t beep_init(int gpio,uint32_t hz){assert(gpio==3 && hz==2000);return ESP_OK;}
 esp_err_t beep_set_active(bool active){
     if(active){assert(!sound && starts<14);started_at=clock_ms;start_times[starts++]=clock_ms;}
@@ -153,12 +168,14 @@ static void dual_step(TickType_t ticks){
     if(clock_ms>=2900 && clock_ms<2980)assert(last_frame.dual_mode);
     if(clock_ms>=2980)assert(!last_frame.dual_mode);
     if(clock_ms==40)assert(sound && light && last_color==BLINK_COLOR_RED);
-    if(clock_ms==230 || clock_ms==2500)assert(sound && last_color==BLINK_COLOR_GREEN);
+    if(clock_ms==230 || clock_ms==2500)assert(sound && light && last_color==BLINK_COLOR_GREEN);
+    if(clock_ms==2500)assert(mode_light);
+    if(clock_ms==2700)assert(!mode_light);
     if(clock_ms==1900)assert(last_frame.word_ready);
     if(clock_ms>=3650){
         const uint64_t expected_starts[]={30,230,630,900,1100,2000,2240,2480,2800,2920,3140};
         const uint64_t expected_durations[]={100,300,100,100,100,180,180,180,30,60,20};
-        assert(starts==11 && stops==11 && !sound && !light && last_frame.word_ready);
+        assert(starts==11 && stops==11 && !sound && !light && !mode_light && mode_flashes==3 && last_frame.word_ready);
         for(unsigned i=0;i<11;++i){
             assert(start_times[i]==expected_starts[i]);
             assert(durations[i]==expected_durations[i]);
@@ -178,6 +195,8 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+    /* 两个真实应用句柄分别采样：外接黄灯严格独立计时，点划仍驱动板载灯。 */
+    assert(mode_light == (mode_flashes && clock_ms < mode_started_at + 200));
 #ifdef TEST_INTERVAL_DISABLED
     clock_ms+=ticks;
     assert(last_frame.selected_unit_ms==100 && last_frame.character_unit_ms==100);
@@ -189,7 +208,7 @@ void vTaskDelay(TickType_t ticks){
     if(!startup_checked){
         assert(clock_ms==0 && last_frame.dual_mode);
         startup_checked=true;
-        /* 单键回归必须通过真实灰键从默认双键模式切入，不修改应用状态。 */
+        /* 单键回归必须通过真实模式键从默认双键模式切入，不修改应用状态。 */
         if(!getenv("TEST_DUAL_MODE")){mode_press(mode_context);return;}
     }
     if(getenv("TEST_DUAL_MODE")){dual_step(ticks);return;}
@@ -213,6 +232,7 @@ void vTaskDelay(TickType_t ticks){
         assert(starts==14 && stops==14 && durations[0]==30 && durations[1]==200 && durations[2]==500);
         for(unsigned i=3;i<13;++i)assert(durations[i]==20);
         assert(durations[13]==500);
+        assert(mode_flashes==1 && !mode_light);
         longjmp(done,1);
     }
     /* 显示任务优先级为 2：持续就绪时，低优先级输入任务会错过完整短按。
