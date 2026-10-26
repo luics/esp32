@@ -1,0 +1,25 @@
+menu "Telegraph Home Assistant"
+    config TELEGRAPH_HA_ENABLED
+        bool "Enable Home Assistant MQTT Discovery"
+        default n
+        select MBEDTLS_CERTIFICATE_BUNDLE
+        help
+            Reuses Wi-Fi configured under Telegraph API synchronization.
+            MQTT runs independently of the HTTPS synchronization worker.
+    if TELEGRAPH_HA_ENABLED
+    config TELEGRAPH_HA_BROKER_URI
+        string "MQTT Broker URI"
+        default ""
+        help
+            mqtt://host:1883 for a trusted local network, or mqtts://host:8883
+            with a public CA certificate. Never embed credentials in the URI.
+    config TELEGRAPH_HA_USERNAME
+        string "MQTT username"
+        default ""
+    config TELEGRAPH_HA_PASSWORD
+        string "MQTT password (local generated config only)"
+        default ""
+        help
+            Never commit credentials to defaults or source control.
+    endif
+endmenu

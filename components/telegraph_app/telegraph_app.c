@@ -21,6 +21,9 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#ifdef CONFIG_TELEGRAPH_HA_ENABLED
+#include "telegraph_ha.h"
+#endif
 
 static const char *TAG = "telegraph";
 static atomic_bool reset_armed;
@@ -268,6 +271,11 @@ void telegraph_app_run(void)
     /* 标签与本次启动同步，使用警告级别便于串口定位。 */
     ESP_LOGW(TAG, "label=%s", label);
     ESP_ERROR_CHECK(telegraph_sync_start(label));
+#ifdef CONFIG_TELEGRAPH_HA_ENABLED
+    /* MQTT 启动失败不影响本地输入；网络 I/O 留在低优先级任务。 */
+    const esp_err_t ha_err = telegraph_ha_start();
+    if (ha_err != ESP_OK) ESP_LOGE(TAG, "HA disabled: %s", esp_err_to_name(ha_err));
+#endif
     size_t page = 0;
     bool feedback_active = false;
     blink_color_t feedback_color = BLINK_COLOR_RED;
@@ -333,6 +341,15 @@ void telegraph_app_run(void)
                 changed = true;
             }
         }
+#ifdef CONFIG_TELEGRAPH_HA_ENABLED
+        bool requested_dual;
+        if (telegraph_ha_take_mode(&requested_dual) && requested_dual != keyer.target_dual) {
+            /* 复用原状态机的延迟切换及跨模式松开保护，只上报实际模式。 */
+            keyer_toggle_mode(&keyer);
+            external_feedback.mode_until_ms = now_ms() + 200;
+            changed = true;
+        }
+#endif
         const bool was_pressed = telegraph->pressed;
         const bool was_dual = keyer.dual_mode;
         ESP_ERROR_CHECK(keyer_advance(&keyer, now_ms(), selected) ? ESP_OK : ESP_ERR_NO_MEM);
@@ -376,6 +393,19 @@ void telegraph_app_run(void)
         const uint32_t next_selected = interval_control_get_unit_ms();
         changed |= selected != next_selected;
         selected = next_selected;
+#ifdef CONFIG_TELEGRAPH_HA_ENABLED
+        telegraph_ha_state_t ha_state = {
+            .dual_mode = keyer.dual_mode, .motion = motion.motion,
+            .unit_ms = telegraph->pressed ? telegraph->pressed_unit_ms
+                       : (telegraph->morse.current[0] ? telegraph->morse.unit_ms : selected),
+        };
+        if (after) {
+            const morse_entry_t *last = &telegraph->morse.history[after - 1];
+            ha_state.character[0] = last->decoded;
+            snprintf(ha_state.code, sizeof(ha_state.code), "%s", last->code);
+        }
+        telegraph_ha_update(&ha_state);
+#endif
         if (changed) show_state(screen, &keyer, selected, page, label, &frame);
     }
 }

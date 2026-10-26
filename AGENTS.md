@@ -74,6 +74,7 @@ repository when they override this baseline.
 - `components/morse/`：纯 C 编解码、字符/词间隔、完整历史与文本分页，公共接口位于 `include/`。
 - `components/telegraph/`：纯 C 单键识别与双键发送状态机，公开依赖 `morse`。
 - `components/telegraph_app/`：外设初始化、边沿队列、声光同步、显示快照与复位调度，对外仅提供运行入口。
+- `components/telegraph_ha/`：复用现有 Wi-Fi，通过 MQTT Discovery 发布 PIR、模式、字符单位与最新确认字符，远程 S/D 请求交给应用任务；配置 Broker、部署 Mosquitto 或进行 Wokwi/HA 联调时阅读 [组件说明](components/telegraph_ha/README.md)。
 - `components/pir_sensor/`：配置 PIR 数字输入、采样电平并仅在变化时记录日志；活动程度和 GPIO5 灯的优先级由 `telegraph_app` 处理。
 - 外设组件继续负责各自驱动；新增业务逻辑按上述职责归属，组件接口和使用约定见各自 README。
 

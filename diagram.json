@@ -20,7 +20,10 @@
     {"type": "wokwi-text", "id": "screen_label", "top": 165, "left": 0, "attrs": {"text": "输入/历史 128×128"}},
     {"type": "wokwi-text", "id": "board_label", "top": 390, "left": 430, "attrs": {"text": "ESP32-C6 · USB"}}
   ],
+  "serialMonitor": {"display": "always"},
   "connections": [
+    ["esp:TX", "$serialMonitor:RX", "", []],
+    ["esp:RX", "$serialMonitor:TX", "", []],
     ["esp:5", "rgb:DIN", "green", ["h-175.48", "v188.09", "h-210", "v-56.5"]],
     ["esp:5V", "rgb:VDD", "red", ["h-35.48", "v112.09", "h-420", "v-76.5"]],
     ["rgb:VSS", "button_mode:2.l", "black", ["h11", "v-12"]],

@@ -78,6 +78,11 @@ static void sync_worker(void *context)
             xEventGroupWaitBits(network, CONNECTED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(5000));
             continue;
         }
+        /* 空 API 地址用于仅接入 HA，Wi-Fi 仍由同一个任务维护。 */
+        if (!CONFIG_TELEGRAPH_SYNC_BASE_URL[0]) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
         if (!time_ready) {
             time_ready = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000)) == ESP_OK;
             if (!time_ready) continue;
@@ -141,8 +146,9 @@ esp_err_t telegraph_sync_start(const char label[4])
         return ESP_OK;
     }
     if (lock) return ESP_ERR_INVALID_STATE;
-    if (strncmp(CONFIG_TELEGRAPH_SYNC_BASE_URL, "https://", 8) ||
-        CONFIG_TELEGRAPH_SYNC_BASE_URL[strlen(CONFIG_TELEGRAPH_SYNC_BASE_URL) - 1] == '/') return ESP_ERR_INVALID_ARG;
+    if (CONFIG_TELEGRAPH_SYNC_BASE_URL[0] &&
+        (strncmp(CONFIG_TELEGRAPH_SYNC_BASE_URL, "https://", 8) ||
+         CONFIG_TELEGRAPH_SYNC_BASE_URL[strlen(CONFIG_TELEGRAPH_SYNC_BASE_URL) - 1] == '/')) return ESP_ERR_INVALID_ARG;
     lock = xSemaphoreCreateMutex();
     network = xEventGroupCreate();
     if (!lock || !network) goto cleanup;
@@ -164,9 +170,15 @@ cleanup:
 esp_err_t telegraph_sync_history(const morse_t *morse)
 {
     if (!morse) return ESP_ERR_INVALID_ARG;
-    if (!enabled) return ESP_OK;
+    if (!enabled || !CONFIG_TELEGRAPH_SYNC_BASE_URL[0]) return ESP_OK;
     xSemaphoreTake(lock, portMAX_DELAY);
     const bool ok = sync_outbox_capture(&outbox, morse);
     xSemaphoreGive(lock);
     return ok ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+/* 只读连接位；MQTT 不依赖 HTTPS 握手或校时完成。 */
+bool telegraph_sync_network_ready(void)
+{
+    return network && (xEventGroupGetBits(network) & CONNECTED_BIT);
 }

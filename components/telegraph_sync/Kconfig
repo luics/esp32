@@ -1,10 +1,11 @@
 menu "Telegraph API synchronization"
     config TELEGRAPH_SYNC_WIFI_SSID
-        string "Wi-Fi SSID (empty disables synchronization)"
+        string "Wi-Fi SSID (shared by HTTPS and Home Assistant)"
         default "Wokwi-GUEST" if DISPLAY_WOKWI_SH1107
         default ""
         help
-            Network used to send confirmed history to the Telegraph API.
+            Network shared by the Telegraph API and Home Assistant MQTT.
+            Empty disables networking.
             Configure real device credentials locally; never commit secrets.
     config TELEGRAPH_SYNC_WIFI_PASSWORD
         string "Wi-Fi password"
@@ -13,8 +14,9 @@ menu "Telegraph API synchronization"
             Password for the configured network. Empty for open networks.
             Stored only in local generated sdkconfig; never commit secrets.
     config TELEGRAPH_SYNC_BASE_URL
-        string "Telegraph HTTPS base URL (without trailing slash)"
+        string "Telegraph HTTPS base URL (empty disables API only)"
         default "https://telegraph-iot.bryanxu.top"
         help
             POST /api/telegraph creates a word; PATCH updates its UUID.
+            Empty disables HTTP requests while keeping Wi-Fi for MQTT.
 endmenu

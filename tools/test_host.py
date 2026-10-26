@@ -13,6 +13,7 @@ TELEGRAPH = COMPONENTS / "telegraph"
 
 # 与组件边界对应地编译，每组测试只获得其实际需要的头文件和源文件。
 cases = [
+    ("ha_protocol", [COMPONENTS / "telegraph_ha"], [COMPONENTS / "telegraph_ha/ha_protocol.c"]),
     ("morse", [MORSE / "include"], [MORSE / "morse.c"]),
     ("telegraph", [MORSE / "include", TELEGRAPH / "include"],
      [MORSE / "morse.c", TELEGRAPH / "telegraph.c"]),

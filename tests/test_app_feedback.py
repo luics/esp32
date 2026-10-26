@@ -17,6 +17,8 @@ enum { ESP_OK=0, ESP_ERR_INVALID_ARG=-1, ESP_ERR_NO_MEM=-2 };
 static inline void test_log(const char *tag, const char *format, ...) { (void)tag; (void)format; }
 #define ESP_LOGI(...) test_log(__VA_ARGS__)
 #define ESP_LOGW(...) test_log(__VA_ARGS__)
+#define ESP_LOGE(...) test_log(__VA_ARGS__)
+#define CONFIG_TELEGRAPH_HA_ENABLED 1
 #define CONFIG_BLINK_RGB_GPIO 8
 #define CONFIG_BLINK_MODE_GPIO 5
 #define CONFIG_PIR_SENSOR_GPIO 15
@@ -69,6 +71,7 @@ HARNESS = r'''
 #include "interval_control.h"
 #include "pir_sensor.h"
 #include "telegraph_sync.h"
+#include "telegraph_ha.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -117,6 +120,16 @@ int64_t esp_timer_get_time(void){return (int64_t)clock_ms*1000;}
 const char *esp_err_to_name(esp_err_t code){(void)code;return "test";}
 void esp_restart(void){assert(!"Unexpected restart");}
 uint32_t esp_random(void){static unsigned index; const uint32_t values[]={0,26,35}; assert(index<3); return values[index++];}
+static telegraph_ha_state_t ha_state;
+esp_err_t telegraph_ha_start(void){return ESP_OK;}
+void telegraph_ha_update(const telegraph_ha_state_t *state){ha_state=*state;}
+bool telegraph_ha_take_mode(bool *dual){
+    if(!getenv("TEST_HA_MODE"))return false;
+    static bool first, second;
+    if(clock_ms>=50 && !first){first=true;*dual=false;return true;}
+    if(clock_ms>=500 && !second){second=true;*dual=true;return true;}
+    return false;
+}
 esp_err_t telegraph_sync_start(const char label[4]){assert(!strcmp(label,"A09"));return ESP_OK;}
 esp_err_t telegraph_sync_history(const morse_t *morse){assert(morse->count);return ESP_OK;}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
@@ -225,6 +238,18 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+    if(getenv("TEST_HA_MODE")){
+        /* 远端请求在划发送中到达：保持完整 300ms，实际切换后才上报 S。 */
+        if(clock_ms==100)assert(ha_state.dual_mode && sound);
+        if(clock_ms==400)assert(!ha_state.dual_mode && !sound && durations[0]==300);
+        if(clock_ms>=550){assert(ha_state.dual_mode && ha_state.unit_ms==100);longjmp(done,1);}
+        for(uint64_t until=clock_ms+ticks;clock_ms<until;){
+            ++clock_ms;
+            if(clock_ms==20)black_edge(true,black_context);
+            if(clock_ms==30)black_edge(false,black_context);
+        }
+        return;
+    }
     if(getenv("TEST_PIR_MODE")){
         if(clock_ms==50)assert(mode_light && external_r==64 && external_g==64 && external_b==64);
         if(clock_ms==110)assert(mode_light && external_color==BLINK_COLOR_YELLOW);
@@ -308,6 +333,7 @@ int main(void){
 #ifdef TEST_INTERVAL_DISABLED
     puts("PASS: actual app_main skips ADC initialization, releases unused ADC pin and stays at 100 ms");return 0;
 #endif
+    if(getenv("TEST_HA_MODE")){puts("PASS: remote S/D requests preserve complete dash and report actual mode after transition");return 0;}
     if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
     if(getenv("TEST_PIR_MODE")){puts("PASS: PIR white/green/yellow/red blink, mode and dot override, motion ended LED off");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
@@ -325,7 +351,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     includes = [work]
     includes += [ROOT / "components" / name / "include"
                  for name in ("blink", "beep", "display", "button_input", "interval_control",
-                              "morse", "telegraph", "telegraph_app", "telegraph_sync", "pir_sensor")]
+                              "morse", "telegraph", "telegraph_app", "telegraph_sync", "telegraph_ha", "pir_sensor")]
     command = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined"]
     for include in includes:
         command += ["-I", str(include)]
@@ -337,6 +363,8 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_RENDER_LOAD": "1"})
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DUAL_MODE": "1"})
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_PIR_MODE": "1"})
+
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_HA_MODE": "1"})
 
     subprocess.run(command + ["-DTEST_INTERVAL_DISABLED"], check=True)
     subprocess.run([str(work / "test")], check=True)

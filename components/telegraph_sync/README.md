@@ -148,3 +148,5 @@ HTTP 替身也覆盖启动 HEAD、25 秒探测、40 秒旧连接关闭、断连�
 主机已验证服务器接受 P-256，但不能据此推断 ESP32 或 Wokwi 的实际耗时；当前已将此客户端密钥交换限制为 P-256，需另做仿真和实板性能对照。
 
 2026-10-23：主机使用内置 CA 且保持域名校验，对新入口 HEAD 得到 HTTP 200；这不能替代 C6/Wokwi 的握手耗时验证。
+
+Wi-Fi 同时供 [telegraph_ha](../telegraph_ha/README.md) 复用；`telegraph_sync_network_ready()` 只读 IP 就绪状态。`CONFIG_TELEGRAPH_SYNC_BASE_URL` 设为空时仅维护 Wi-Fi，不预热 HTTPS、不创建历史同步缓存，可用于仅接入 HA。
