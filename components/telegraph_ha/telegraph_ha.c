@@ -46,69 +46,32 @@ static bool publish_json(const char *topic, cJSON *json)
     return ok;
 }
 
-typedef struct { const char *domain, *key, *name, *expression; } entity_t;
-static const entity_t entities[] = {
-    {"binary_sensor", "motion", "人体运动", "{{ value_json.motion }}"},
-    {"select", "mode", "输入模式", "{{ value_json.mode }}"},
-    {"sensor", "unit", "间隔单位", "{{ value_json.unit_ms }}"},
-    {"sensor", "character", "最新字符", "{{ value_json.character }}"},
-    {"sensor", "code", "最新摩斯码", "{{ value_json.code }}"},
-};
-
 static bool discovery(void)
 {
-    for (size_t i = 0; i < sizeof(entities) / sizeof(entities[0]); ++i) {
-        const entity_t *e = &entities[i];
-        char topic[128], unique[64];
-        snprintf(topic, sizeof(topic), "homeassistant/%s/%s_%s/config", e->domain, device_id, e->key);
-        snprintf(unique, sizeof(unique), "%s_%s", device_id, e->key);
-        cJSON *json = cJSON_CreateObject();
-        if (!json) return false;
-        bool ok = cJSON_AddStringToObject(json, "name", e->name) &&
-                  cJSON_AddStringToObject(json, "unique_id", unique) &&
-                  cJSON_AddStringToObject(json, "state_topic", state_topic) &&
-                  cJSON_AddStringToObject(json, "value_template", e->expression) &&
-                  cJSON_AddStringToObject(json, "availability_topic", availability);
-        cJSON *device = cJSON_AddObjectToObject(json, "device");
-        ok = ok && device && cJSON_AddStringToObject(device, "identifiers", device_id) &&
-             cJSON_AddStringToObject(device, "name", "摩斯码电报机") &&
-             cJSON_AddStringToObject(device, "manufacturer", "DIY") &&
-             cJSON_AddStringToObject(device, "model", "ESP32-C6 Telegraph");
-        if (!strcmp(e->key, "mode")) {
-            const char *options[] = {"S", "D"};
-            cJSON *array = cJSON_CreateStringArray(options, 2);
-            if (array && !cJSON_AddItemToObject(json, "options", array)) {
-                cJSON_Delete(array);
-                array = NULL;
-            }
-            ok = ok && array && cJSON_AddStringToObject(json, "command_topic", command_topic) &&
-                 cJSON_AddBoolToObject(json, "retain", false) && cJSON_AddNumberToObject(json, "qos", 1);
-        } else if (!strcmp(e->key, "motion")) {
-            ok = ok && cJSON_AddStringToObject(json, "device_class", "motion") &&
-                 cJSON_AddStringToObject(json, "payload_on", "ON") &&
-                 cJSON_AddStringToObject(json, "payload_off", "OFF");
-        } else if (!strcmp(e->key, "unit")) {
-            ok = ok && cJSON_AddStringToObject(json, "unit_of_measurement", "ms");
-        }
-        if (!ok) { cJSON_Delete(json); return false; }
-        if (!publish_json(topic, json)) return false;
-    }
-    return true;
-}
-
-static bool report_state(const telegraph_ha_state_t *state)
-{
+    /* 独立命名空间，只发布本项目的灯实体，不改动电报机的 Discovery。 */
+    char topic[128], unique[64];
+    snprintf(topic, sizeof(topic), "homeassistant/light/%s_led/config", device_id);
+    snprintf(unique, sizeof(unique), "%s_led", device_id);
     cJSON *json = cJSON_CreateObject();
     if (!json) return false;
-    if (!cJSON_AddStringToObject(json, "mode", state->dual_mode ? "D" : "S") ||
-        !cJSON_AddStringToObject(json, "motion", state->motion ? "ON" : "OFF") ||
-        !cJSON_AddNumberToObject(json, "unit_ms", state->unit_ms) ||
-        !cJSON_AddStringToObject(json, "character", state->character) ||
-        !cJSON_AddStringToObject(json, "code", state->code)) {
-        cJSON_Delete(json);
-        return false;
-    }
-    return publish_json(state_topic, json);
+    bool ok = cJSON_AddStringToObject(json, "name", "GPIO5 LED") &&
+              cJSON_AddStringToObject(json, "unique_id", unique) &&
+              cJSON_AddStringToObject(json, "state_topic", state_topic) &&
+              cJSON_AddStringToObject(json, "command_topic", command_topic) &&
+              cJSON_AddStringToObject(json, "availability_topic", availability) &&
+              cJSON_AddBoolToObject(json, "retain", false) && cJSON_AddNumberToObject(json, "qos", 1);
+    cJSON *device = cJSON_AddObjectToObject(json, "device");
+    ok = ok && device && cJSON_AddStringToObject(device, "identifiers", device_id) &&
+         cJSON_AddStringToObject(device, "name", "HA-Test") &&
+         cJSON_AddStringToObject(device, "manufacturer", "DIY") &&
+         cJSON_AddStringToObject(device, "model", "ESP32-C6");
+    if (!ok) { cJSON_Delete(json); return false; }
+    return publish_json(topic, json);
+}
+
+static bool report_state(bool on)
+{
+    return publish(state_topic, on ? "ON" : "OFF");
 }
 
 static void mqtt_event(void *context, esp_event_base_t base, int32_t id, void *data)
@@ -132,9 +95,9 @@ static void mqtt_event(void *context, esp_event_base_t base, int32_t id, void *d
         const ha_message_t message = ha_receive(&receiver, command_topic, event->topic, event->topic_len,
             event->data, event->data_len, event->current_data_offset, event->total_data_len, event->retain);
         if (message == HA_REDISCOVER) atomic_store(&rediscover, true);
-        if (message == HA_SINGLE || message == HA_DUAL) {
-            const bool dual = message == HA_DUAL;
-            xQueueOverwrite(commands, &dual);
+        if (message == HA_OFF || message == HA_ON) {
+            const bool on = message == HA_ON;
+            xQueueOverwrite(commands, &on);
         }
     } else if (id == MQTT_EVENT_ERROR) {
         ESP_LOGW(TAG, "MQTT transport/broker error; automatic reconnect enabled");
@@ -167,14 +130,12 @@ static void worker(void *context)
         vTaskDelete(NULL);
         return;
     }
-    telegraph_ha_state_t state = {0};
+    bool state = false;
     bool have_state = false, dirty = false;
     while (true) {
-        telegraph_ha_state_t next;
+        bool next;
         if (xQueueReceive(snapshots, &next, 0) == pdTRUE) {
-            dirty |= !have_state || state.dual_mode != next.dual_mode || state.motion != next.motion ||
-                     state.unit_ms != next.unit_ms || strcmp(state.character, next.character) ||
-                     strcmp(state.code, next.code);
+            dirty |= !have_state || state != next;
             state = next;
             have_state = true;
         }
@@ -187,11 +148,11 @@ static void worker(void *context)
             if (atomic_exchange(&rediscover, false)) {
                 /* HA birth 只重新发布，不重复订阅，避免 retained online 形成反馈循环。 */
                 bool ok = discovery();
-                if (ok) ok = report_state(&state) && publish(availability, "online");
+                if (ok) ok = report_state(state) && publish(availability, "online");
                 if (!ok) atomic_store(&rediscover, true);
                 dirty = !ok;
             } else if (dirty) {
-                dirty = !report_state(&state);
+                dirty = !report_state(state);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -212,12 +173,12 @@ esp_err_t telegraph_ha_start(void)
     uint8_t mac[6];
     esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
     if (err != ESP_OK) return err;
-    snprintf(device_id, sizeof(device_id), "telegraph_%02x%02x%02x%02x%02x%02x",
+    snprintf(device_id, sizeof(device_id), "ha_test_%02x%02x%02x%02x%02x%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     snprintf(state_topic, sizeof(state_topic), "luics/%s/state", device_id);
-    snprintf(command_topic, sizeof(command_topic), "luics/%s/mode/set", device_id);
+    snprintf(command_topic, sizeof(command_topic), "luics/%s/led/set", device_id);
     snprintf(availability, sizeof(availability), "luics/%s/availability", device_id);
-    snapshots = xQueueCreate(1, sizeof(telegraph_ha_state_t));
+    snapshots = xQueueCreate(1, sizeof(bool));
     commands = xQueueCreate(1, sizeof(bool));
     if (snapshots && commands && xTaskCreate(worker, "telegraph_ha", 6144, NULL, 1, NULL) == pdPASS) return ESP_OK;
     /* 初始化失败释放队列；HA 错误由入口记录，本地电报机继续运行。 */
@@ -227,17 +188,17 @@ esp_err_t telegraph_ha_start(void)
     return ESP_ERR_NO_MEM;
 }
 
-void telegraph_ha_update(const telegraph_ha_state_t *state)
+void telegraph_ha_update(bool on)
 {
-    if (snapshots) xQueueOverwrite(snapshots, state);
+    if (snapshots) xQueueOverwrite(snapshots, &on);
 }
 
-bool telegraph_ha_take_mode(bool *dual_mode)
+bool telegraph_ha_take_led(bool *on)
 {
-    return commands && xQueueReceive(commands, dual_mode, 0) == pdTRUE;
+    return commands && xQueueReceive(commands, on, 0) == pdTRUE;
 }
 #else
 esp_err_t telegraph_ha_start(void) { return ESP_OK; }
-void telegraph_ha_update(const telegraph_ha_state_t *state) { (void)state; }
-bool telegraph_ha_take_mode(bool *dual_mode) { (void)dual_mode; return false; }
+void telegraph_ha_update(bool on) { (void)on; }
+bool telegraph_ha_take_led(bool *on) { (void)on; return false; }
 #endif

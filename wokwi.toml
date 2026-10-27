@@ -1,10 +1,10 @@
 [wokwi]
 # 板载 RGB LED 使用 GPIO8 显示点红/划绿，GPIO5 外接 WS2812 同步点红/划绿，并优先显示模式切换黄光。
 # 红键 GPIO0（R）、绿键 GPIO1（D）、黄键 GPIO2（M），间隔旋钮 GPIO4，蜂鸣器 GPIO3。
-# PIR 人体运动传感器：VCC 接 5V，OUT 接 GPIO15，GND 共地；GPIO5 空闲时显示分档活动闪光，启用 MQTT 时同时上报 HA。
+# PIR 人体运动传感器：VCC 接 5V，OUT 接 GPIO15，GND 共地；GPIO5 空闲时显示分档活动闪光；HA 仅暴露外接 LED 开关。
 # 构建：eim run "bash tools/build_wokwi.sh build" stable-mcp
 # 仿真固件使用 GRB、SH1107 128x128 I2C OLED（SCL GPIO6 / SDA GPIO7）。
 # SH1107 近似 SSD1327 的黑白画面，不模拟 16 级灰度；实板驱动状态见 AGENTS.md。
 version = 1
 firmware = "build-wokwi/flasher_args.json"
-elf = "build-wokwi/esp32_blink.elf"
+elf = "build-wokwi/HA-Test.elf"

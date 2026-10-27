@@ -6,13 +6,13 @@
 int main(void)
 {
     ha_rx_t rx = {0};
-    const char *command = "luics/test/mode/set";
+    const char *command = "luics/test/led/set";
     const size_t n = strlen(command);
-    /* 长度界定的输入可以没有结束符；重复 D/S 是设值操作，交由应用比较目标状态。 */
-    const char dual[] = {'D', 'X'};
-    assert(ha_receive(&rx, command, command, n, dual, 1, 0, 1, false) == HA_DUAL);
-    assert(ha_receive(&rx, command, command, n, "S", 1, 0, 1, false) == HA_SINGLE);
-    assert(ha_receive(&rx, command, command, n, "S", 1, 0, 1, true) == HA_NONE);
+    /* 长度界定的输入可以没有结束符；ON/OFF 是幂等设值操作。 */
+    const char dual[] = {'O', 'N', 'X'};
+    assert(ha_receive(&rx, command, command, n, dual, 2, 0, 2, false) == HA_ON);
+    assert(ha_receive(&rx, command, command, n, "OFF", 3, 0, 3, false) == HA_OFF);
+    assert(ha_receive(&rx, command, command, n, "ON", 2, 0, 2, true) == HA_NONE);
     assert(ha_receive(&rx, command, command, n - 1, "D", 1, 0, 1, false) == HA_NONE);
     assert(ha_receive(&rx, command, command, n, "D\0", 2, 0, 2, false) == HA_NONE);
     assert(ha_receive(&rx, command, command, n, "online!", 7, 0, 7, false) == HA_NONE);

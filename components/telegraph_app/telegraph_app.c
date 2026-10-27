@@ -122,6 +122,8 @@ typedef struct {
     bool active;
     uint8_t red, green, blue;
     uint64_t mode_until_ms;
+    bool ha_on;
+    uint64_t ha_started_ms;
 } external_feedback_t;
 
 static unsigned pir_feedback_level(uint32_t active_ms)
@@ -157,6 +159,11 @@ static void sync_external_feedback(blink_handle_t led, bool signal_active,
         red = colors[level][0];
         green = colors[level][1];
         blue = colors[level][2];
+    }
+    else if (state->ha_on) {
+        /* HA 开灯后持续红光快闪，亮灭各 75 ms，不阻塞输入任务。 */
+        active = (now_ms() - state->ha_started_ms) % 150 < 75;
+        red = 64;
     }
     if (active && (!state->active || state->red != red || state->green != green || state->blue != blue)) {
         ESP_ERROR_CHECK(blink_set_rgb(led, red, green, blue));
@@ -342,12 +349,11 @@ void telegraph_app_run(void)
             }
         }
 #ifdef CONFIG_TELEGRAPH_HA_ENABLED
-        bool requested_dual;
-        if (telegraph_ha_take_mode(&requested_dual) && requested_dual != keyer.target_dual) {
-            /* 复用原状态机的延迟切换及跨模式松开保护，只上报实际模式。 */
-            keyer_toggle_mode(&keyer);
-            external_feedback.mode_until_ms = now_ms() + 200;
-            changed = true;
+        bool requested_led;
+        if (telegraph_ha_take_led(&requested_led)) {
+            /* 重复 ON 不重置闪烁相位；提示结束后沿用原来的闪烁时钟。 */
+            if (requested_led && !external_feedback.ha_on) external_feedback.ha_started_ms = now_ms();
+            external_feedback.ha_on = requested_led;
         }
 #endif
         const bool was_pressed = telegraph->pressed;
@@ -394,17 +400,7 @@ void telegraph_app_run(void)
         changed |= selected != next_selected;
         selected = next_selected;
 #ifdef CONFIG_TELEGRAPH_HA_ENABLED
-        telegraph_ha_state_t ha_state = {
-            .dual_mode = keyer.dual_mode, .motion = motion.motion,
-            .unit_ms = telegraph->pressed ? telegraph->pressed_unit_ms
-                       : (telegraph->morse.current[0] ? telegraph->morse.unit_ms : selected),
-        };
-        if (after) {
-            const morse_entry_t *last = &telegraph->morse.history[after - 1];
-            ha_state.character[0] = last->decoded;
-            snprintf(ha_state.code, sizeof(ha_state.code), "%s", last->code);
-        }
-        telegraph_ha_update(&ha_state);
+        telegraph_ha_update(external_feedback.ha_on);
 #endif
         if (changed) show_state(screen, &keyer, selected, page, label, &frame);
     }

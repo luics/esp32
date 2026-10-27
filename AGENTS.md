@@ -4,7 +4,7 @@ This file is a reusable baseline for coding agents working in ESP-IDF applicatio
 and component repositories. Follow more specific instructions in the target
 repository when they override this baseline.
 
-## 当前项目：摩斯码电报机（微雪 ESP32-C6-Zero）
+## 当前项目：HA-Test（微雪 ESP32-C6-Zero 摩斯码电报机）
 
 项目说明与开发规范统一维护在本文件。根目录 `README.md` 仅保留本文件引用及维护提示，
 不要在其中添加其他内容；组件接口仍维护在各组件 README。
@@ -49,7 +49,7 @@ repository when they override this baseline.
   标题为“摩斯码电报机”，功能标签仅显示功能名称，不展示 GPIO 编号；R/D/M 为点键/划键/模式切换快捷键。仿真不额外放置独立历史翻页和复位按钮；历史仍可通过开发板 BOOT 翻页。
   保留 UART/USB Serial-JTAG 日志；板上常亮红色电源灯与 WS2812 信号灯不同。
 - PIR 电平变化输出开始/结束日志。GPIO5 空闲时按连续高电平时间分四档闪烁：0–1 秒白光（周期 500 ms）、1–2 秒绿光（400 ms）、2–3 秒黄光（300 ms）、3 秒起红光（150 ms）；亮灭各半周期，低电平立即结束并归零。
-  这是二值 PIR 的活动时长代理，不是运动幅度测量；模式黄光优先，其次点划颜色，最后 PIR 闪光，板载 GPIO8 不受 PIR 影响。
+  这是二值 PIR 的活动时长代理，不是运动幅度测量；模式黄光优先，其次点划颜色，最后 PIR 闪光，然后是 HA 请求的红光快闪（150 ms 周期），板载 GPIO8 不受 PIR 影响。
 - 调整 Wokwi 布局与走线时，优先减少线与元件的交叉，其次减少线与线的交叉。
 - 所有走线优先保持平直；需要转弯时，在满足上述避让优先级的前提下，尽量减少转角。
 
@@ -74,7 +74,7 @@ repository when they override this baseline.
 - `components/morse/`：纯 C 编解码、字符/词间隔、完整历史与文本分页，公共接口位于 `include/`。
 - `components/telegraph/`：纯 C 单键识别与双键发送状态机，公开依赖 `morse`。
 - `components/telegraph_app/`：外设初始化、边沿队列、声光同步、显示快照与复位调度，对外仅提供运行入口。
-- `components/telegraph_ha/`：复用现有 Wi-Fi，通过 MQTT Discovery 发布 PIR、模式、字符单位与最新确认字符，远程 S/D 请求交给应用任务；配置 Broker、部署 Mosquitto 或进行 Wokwi/HA 联调时阅读 [组件说明](components/telegraph_ha/README.md)。
+- `components/telegraph_ha/`：复用现有 Wi-Fi，以独立 `ha_test_<MAC>` 身份通过 MQTT Discovery 仅发布 GPIO5 外接灯开关；原项目 `telegraph_<MAC>` 设备及实体保留，远程开关请求交给应用任务；配置 Broker、部署 Mosquitto 或进行 Wokwi/HA 联调时阅读 [组件说明](components/telegraph_ha/README.md)。
 - `components/pir_sensor/`：配置 PIR 数字输入、采样电平并仅在变化时记录日志；活动程度和 GPIO5 灯的优先级由 `telegraph_app` 处理。
 - 外设组件继续负责各自驱动；新增业务逻辑按上述职责归属，组件接口和使用约定见各自 README。
 

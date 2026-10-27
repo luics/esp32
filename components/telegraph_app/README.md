@@ -24,4 +24,4 @@ GPIO 及显示配置沿用现有 `CONFIG_*`，初始化与运行错误沿用 `ES
 
 间隔电位器由 `CONFIG_INTERVAL_CONTROL_ENABLED` 控制；关闭时不启动 ADC 采样、不将电位器引脚列为占用，使用固定 100 ms。实板默认关闭，Wokwi 默认启用。
 
-启用 Home Assistant 后，通过单槽队列向 [telegraph_ha](../telegraph_ha/README.md) 提交 PIR、实际模式、字符单位及最新确认字符；远程 S/D 请求由输入任务复用 keyer 切换。网络处理在后台，不阻塞按键。
+启用 Home Assistant 后，[telegraph_ha](../telegraph_ha/README.md) 通过单槽队列向输入任务传递 GPIO5 红光快闪开关请求；模式、点划和 PIR 提示优先。网络处理在后台，不阻塞按键。

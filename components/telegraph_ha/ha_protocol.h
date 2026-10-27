@@ -2,10 +2,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef enum { HA_NONE, HA_SINGLE, HA_DUAL, HA_REDISCOVER } ha_message_t;
+typedef enum { HA_NONE, HA_OFF, HA_ON, HA_REDISCOVER } ha_message_t;
 typedef struct {
     size_t received, total;
-    bool mode, birth, retained;
+    bool command, birth, retained;
     char payload[6];
 } ha_rx_t;
 /* 有界重组；拒绝超长、错位分片和 retained 控制，主题/数据均不要求 NUL。 */
