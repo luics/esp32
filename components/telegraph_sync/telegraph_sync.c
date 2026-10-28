@@ -1,6 +1,7 @@
 #include "telegraph_sync.h"
 #include "sync_outbox.h"
 #include "sync_http.h"
+#include "sync_dp.h"
 #include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
@@ -21,6 +22,7 @@ static SemaphoreHandle_t lock;
 static EventGroupHandle_t network;
 static bool enabled;
 #define CONNECTED_BIT BIT0
+#define TIME_READY_BIT BIT1
 
 static void network_event(void *context, esp_event_base_t base, int32_t id, void *data)
 {
@@ -86,6 +88,7 @@ static void sync_worker(void *context)
         if (!time_ready) {
             time_ready = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000)) == ESP_OK;
             if (!time_ready) continue;
+            xEventGroupSetBits(network, TIME_READY_BIT);
         }
         /* 提前握手并维护 HTTP 长连接；HEAD 失败不修改任何历史记录的同步状态。 */
         err = sync_http_prepare();
@@ -157,6 +160,8 @@ esp_err_t telegraph_sync_start(const char label[4])
      * 使其能持续喂狗，同时保持输入和显示任务优先。 */
     if (xTaskCreate(sync_worker, "telegraph_sync", 8192, NULL, tskIDLE_PRIORITY, NULL) != pdPASS) goto cleanup;
     enabled = true;
+    const esp_err_t dp_err = sync_dp_start();
+    if (dp_err != ESP_OK) ESP_LOGE(TAG, "DeepSeek client disabled: %s", esp_err_to_name(dp_err));
     return ESP_OK;
 cleanup:
     /* 启动失败释放已取得的同步资源，不留下半初始化队列。 */
@@ -181,4 +186,10 @@ esp_err_t telegraph_sync_history(const morse_t *morse)
 bool telegraph_sync_network_ready(void)
 {
     return network && (xEventGroupGetBits(network) & CONNECTED_BIT);
+}
+
+bool sync_dp_transport_ready(void)
+{
+    return network && (xEventGroupGetBits(network) & (CONNECTED_BIT | TIME_READY_BIT)) ==
+                      (CONNECTED_BIT | TIME_READY_BIT);
 }

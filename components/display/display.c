@@ -130,11 +130,16 @@ static void draw_title(struct display *display, int top)
 static void render_stripe(struct display *display, int top, const display_frame_t *frame)
 {
     memset(display->stripe, GRAY_WHITE, WIDTH * STRIPE_HEIGHT);
-    /* 128×128 保留输入与历史两区；八个点划均可在一行完整展示。 */
+    /* 白底绘制标题、预览、历史和状态。 */
     draw_title(display, top);
-    centered(display, top, 16, frame->current_code, 2);
-    const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
-    centered(display, top, 35, decoded, 2);
+    if (frame->dp_preview_active) {
+        draw_text(display, top, 4, 20, frame->dp_preview[0], 1, GRAY_BLACK);
+        draw_text(display, top, 4, 34, frame->dp_preview[1], 1, GRAY_BLACK);
+    } else {
+        centered(display, top, 16, frame->current_code, 2);
+        const char decoded[] = {frame->decoded ? frame->decoded : ' ', '\0'};
+        centered(display, top, 35, decoded, 2);
+    }
     draw_history_status(display, top, HEIGHT - 11, 4, frame);
     for (int row = 0; row < DISPLAY_HISTORY_ROWS; ++row) {
         draw_text(display, top, 4, 55 + row * 10, frame->history[row], 1, GRAY_HISTORY);

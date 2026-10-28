@@ -49,6 +49,7 @@ typedef void *TaskHandle_t;
 typedef struct test_queue *QueueHandle_t;
 QueueHandle_t xQueueCreate(unsigned count, size_t size);
 int xQueueSend(QueueHandle_t queue, const void *item, unsigned wait);
+int xQueueOverwrite(QueueHandle_t queue, const void *item);
 int xQueueReceive(QueueHandle_t queue, void *item, unsigned wait);
 int xQueueReset(QueueHandle_t queue);
 void vTaskDelay(TickType_t ticks);
@@ -95,12 +96,15 @@ static blink_color_t last_color;
 static display_frame_t last_frame;
 static button_input_edge_callback_t red_edge, black_edge;
 static button_input_callback_t green_press, mode_press;
+static telegraph_dp_content_callback_t dp_callback;
+static void *dp_context;
 static void *red_context, *green_context, *black_context, *mode_context;
 static jmp_buf done;
 
 QueueHandle_t xQueueCreate(unsigned count, size_t size) {
-    assert(count==64 && size<=64); queue=calloc(1,sizeof(*queue)); assert(queue); queue->size=size; return queue;
+    assert((count==64 || count==1) && size<=64); QueueHandle_t result=calloc(1,sizeof(*result)); assert(result); result->size=size; if(count==64)queue=result; return result;
 }
+int xQueueOverwrite(QueueHandle_t q,const void *item){memcpy(q->items[0],item,q->size);q->head=0;q->count=1;return pdTRUE;}
 int xQueueSend(QueueHandle_t q,const void *item,unsigned wait) {
     (void)wait; if(q->count==64)return 0;
     memcpy(q->items[(q->head+q->count)%64],item,q->size); ++q->count; return pdTRUE;
@@ -132,6 +136,8 @@ bool telegraph_ha_take_mode(bool *dual){
 }
 esp_err_t telegraph_sync_start(const char label[4]){assert(!strcmp(label,"A09"));return ESP_OK;}
 esp_err_t telegraph_sync_history(const morse_t *morse){assert(morse->count);return ESP_OK;}
+esp_err_t telegraph_dp_post(const char *json){assert(strstr(json,"\"content\":\"hi\""));assert(strstr(json,"\"reasoning_effort\":\"none\""));return ESP_OK;}
+void telegraph_dp_set_content_callback(telegraph_dp_content_callback_t callback,void *context){dp_callback=callback;dp_context=context;}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
 esp_err_t blink_create_with_order(int gpio,blink_order_t order,blink_handle_t *handle){
     assert(gpio==5 && order==BLINK_ORDER_GRB);*handle=(void*)2;return ESP_OK;
@@ -238,6 +244,18 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+    if(getenv("TEST_DP_PREVIEW")){
+        if(clock_ms==20){assert(last_frame.dp_preview_active);assert(!strcmp(last_frame.dp_preview[0],"12345678901234567890"));assert(!strcmp(last_frame.dp_preview[1],"abc?"));}
+        if(clock_ms==40)assert(!last_frame.dp_preview_active);
+        if(clock_ms>=500){assert(last_frame.dp_preview_active);longjmp(done,1);}
+        for(uint64_t until=clock_ms+ticks;clock_ms<until;){
+            ++clock_ms;
+            if(clock_ms==10){dp_callback(true,NULL,dp_context);dp_callback(false,"12345678901234567890abc\xe4\xbd\xa0",dp_context);}
+            if(clock_ms==30)red_edge(true,red_context);
+            if(clock_ms==50)red_edge(false,red_context);
+        }
+        return;
+    }
     if(getenv("TEST_HA_MODE")){
         /* 远端请求在划发送中到达：保持完整 300ms，实际切换后才上报 S。 */
         if(clock_ms==100)assert(ha_state.dual_mode && sound);
@@ -334,6 +352,7 @@ int main(void){
     puts("PASS: actual app_main skips ADC initialization, releases unused ADC pin and stays at 100 ms");return 0;
 #endif
     if(getenv("TEST_HA_MODE")){puts("PASS: remote S/D requests preserve complete dash and report actual mode after transition");return 0;}
+    if(getenv("TEST_DP_PREVIEW")){puts("PASS: DP preview, wrapping, UTF-8 fallback and input priority");return 0;}
     if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
     if(getenv("TEST_PIR_MODE")){puts("PASS: PIR white/green/yellow/red blink, mode and dot override, motion ended LED off");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
@@ -365,6 +384,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_PIR_MODE": "1"})
 
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_HA_MODE": "1"})
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DP_PREVIEW": "1"})
 
     subprocess.run(command + ["-DTEST_INTERVAL_DISABLED"], check=True)
     subprocess.run([str(work / "test")], check=True)

@@ -1,5 +1,15 @@
 # telegraph_sync
 
+## DeepSeek 代理
+
+复用同步服务的 HTTPS 根地址、私有 CA、Wi-Fi 和校时访问 `/api/dp`，客户端不发送 API Key。
+`telegraph_dp_post(json)` 异步入队完整 JSON，请求中的 `stream` 可为 `true`（SSE）或 `false`（JSON），其余字段原样发送；`telegraph_dp_get_models()` 入队模型列表 GET。请求体上限 4096 字节，队列容量 4；队列满或服务未启用时返回错误。联网和校时最多等待 20 秒，失败丢弃请求并记录日志，不自动重试。
+响应正文按接收顺序直接打印到串口，包含服务端错误响应和 SSE `data:` / `[DONE]`，随后记录 HTTP 状态；网络错误单独记录。其他任务的日志可能与响应交错。
+POST 响应的 `choices[0].delta.content`（SSE）或 `choices[0].message.content`（JSON）同时送往显示预览；忽略推理内容、工具调用和 GET 响应。JSON 或单个 SSE 事件最多 16 KiB，超出或解析失败时记录警告，串口仍打印原始响应。
+应用在请求前通过 `telegraph_dp_set_content_callback` 注册回调；回调运行于网络任务，只能短暂使用传入的内容并应立即返回。
+主机测试使用已下载的 `managed_components/espressif__cjson` 源码；首次运行前需先通过 ESP-IDF 完成组件依赖解析。
+模式按钮每次点击同时提交 `hi` 的流式请求，设置 `reasoning_effort` 为 `none`；模式切换和本地输入不等待网络。
+
 把已确认的摩斯码历史异步同步到 `https://telegraph-iot.bryanxu.top`。
 
 `telegraph_sync_start(label)` 在本次启动生成标签后调用一次。

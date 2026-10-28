@@ -26,6 +26,8 @@ typedef struct {
     bool dual_mode;
     char current_code[10];
     char decoded;
+    bool dp_preview_active;
+    char dp_preview[2][21]; /* 回答的最新两行，每行最多 20 个 ASCII 字符。 */
     unsigned page;
     unsigned pages;
     char label[4]; /* 本次开机标签：三个大写字母或数字，以 NUL 结尾。 */

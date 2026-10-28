@@ -38,6 +38,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-host-tests-") as directory:
 
 subprocess.run([sys.executable, str(ROOT / "tests/test_app_feedback.py")], check=True)
 subprocess.run([sys.executable, str(ROOT / "tests/test_sync_http.py")], check=True)
+subprocess.run([sys.executable, str(ROOT / "tests/test_sync_dp.py")], check=True)
 
 subprocess.run([sys.executable, str(ROOT / "tests/test_sync_tls_timing.py")], check=True)
 

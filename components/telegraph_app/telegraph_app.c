@@ -28,6 +28,32 @@
 static const char *TAG = "telegraph";
 static atomic_bool reset_armed;
 static atomic_bool event_overflow;
+typedef struct { char lines[2][21]; bool active; } dp_preview_t;
+
+static void on_dp_content(bool start, const char *content, void *context)
+{
+    static dp_preview_t preview;
+    static unsigned row, column;
+    if (start) {
+        memset(&preview, 0, sizeof(preview));
+        preview.active = true;
+        row = column = 0;
+    } else if (content) {
+        /* 预览保留末两行；不支持的 UTF-8 字符以一个问号表示。 */
+        for (const unsigned char *p = (const unsigned char *)content; *p; ++p) {
+            if ((*p & 0xc0) == 0x80) continue;
+            if (*p == '\r') continue;
+            if (column == 20 || *p == '\n') {
+                if (row == 0) row = 1;
+                else { memcpy(preview.lines[0], preview.lines[1], 21); memset(preview.lines[1], 0, 21); }
+                column = 0;
+                if (*p == '\n') continue;
+            }
+            preview.lines[row][column++] = *p >= 32 && *p < 127 ? (char)*p : '?';
+        }
+    }
+    xQueueOverwrite((QueueHandle_t)context, &preview);
+}
 typedef enum { RED_DOWN, RED_UP, BLACK_DOWN, BLACK_UP, MODE_TOGGLE, HISTORY_NEXT } input_kind_t;
 typedef struct {
     input_kind_t kind;
@@ -182,7 +208,8 @@ static void restart_if_requested(blink_handle_t led, blink_handle_t external_led
 }
 
 static void show_state(display_handle_t screen, const keyer_t *keyer,
-                       uint32_t selected, size_t page, const char label[4], display_frame_t *frame)
+                       uint32_t selected, size_t page, const char label[4], const dp_preview_t *preview,
+                       display_frame_t *frame)
 {
     const telegraph_t *telegraph = &keyer->telegraph;
     const morse_t *morse = &telegraph->morse;
@@ -196,6 +223,8 @@ static void show_state(display_handle_t screen, const keyer_t *keyer,
                                                 : (morse->current[0] ? morse->unit_ms : selected);
     strcpy(frame->current_code, morse->invalid ? "INVALID" : morse->current);
     frame->decoded = morse->current[0] ? (morse->invalid ? '?' : morse_decode(morse->current)) : ' ';
+    frame->dp_preview_active = preview->active && !telegraph->pressed && !morse->current[0] && !keyer->count;
+    memcpy(frame->dp_preview, preview->lines, sizeof(frame->dp_preview));
     frame->characters = morse->count;
     frame->pages = morse_history_lines(morse, page, DISPLAY_HISTORY_ROWS, DISPLAY_HISTORY_COLS, frame->history);
     frame->page = page + 1;
@@ -245,6 +274,9 @@ void telegraph_app_run(void)
 #endif
     QueueHandle_t events = xQueueCreate(64, sizeof(input_event_t));
     ESP_ERROR_CHECK(events ? ESP_OK : ESP_ERR_NO_MEM);
+    QueueHandle_t dp_updates = xQueueCreate(1, sizeof(dp_preview_t));
+    ESP_ERROR_CHECK(dp_updates ? ESP_OK : ESP_ERR_NO_MEM);
+    telegraph_dp_set_content_callback(on_dp_content, dp_updates);
     button_input_handle_t red_button = NULL, history_button = NULL, reset_button = NULL;
     ESP_ERROR_CHECK(button_input_create_edges(CONFIG_BUTTON_INPUT_RED_GPIO, on_red_edge,
                                               events, &red_button));
@@ -284,7 +316,8 @@ void telegraph_app_run(void)
     int motion_level = -1;
     bool wait_keys_release = false;
     uint32_t selected = interval_control_get_unit_ms();
-    show_state(screen, &keyer, selected, page, label, &frame);
+    dp_preview_t dp_preview = {0};
+    show_state(screen, &keyer, selected, page, label, &dp_preview, &frame);
     ESP_LOGI(TAG, "Ready: S=single key, D=queued dot/dash; dot=input, dash=dash, yellow=mode, BOOT=page");
     ESP_LOGI(TAG, "LEDs: dot/dash GPIO%d, external GPIO%d (dot/dash + mode + PIR GPIO%d)",
              CONFIG_BLINK_RGB_GPIO, CONFIG_BLINK_MODE_GPIO, CONFIG_PIR_SENSOR_GPIO);
@@ -293,6 +326,7 @@ void telegraph_app_run(void)
         const size_t before = telegraph->morse.count;
         const bool last_word_end = before && telegraph->morse.history[before - 1].word_end;
         bool changed = false;
+        if (xQueueReceive(dp_updates, &dp_preview, 0) == pdTRUE) changed = true;
         unsigned page_requests = 0;
         if (atomic_exchange(&event_overflow, false)) {
             /* 丢失松开事件时取消未完成按键并等物理松开，等待松开后再接收下一次输入。 */
@@ -321,6 +355,9 @@ void telegraph_app_run(void)
                 ++page_requests;
             } else if (event.kind == MODE_TOGGLE) {
                 keyer_toggle_mode(&keyer);
+                /* 网络请求只入队，不能阻塞输入、声光或模式切换。 */
+                const esp_err_t dp_err = telegraph_dp_post("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"reasoning_effort\":\"none\"}");
+                if (dp_err != ESP_OK) ESP_LOGW(TAG, "DeepSeek request not queued: %s", esp_err_to_name(dp_err));
                 /* 重复点击重新计时并记录；黄光优先期间仍继续发送点划。 */
                 external_feedback.mode_until_ms = now_ms() + 200;
                 external_feedback.active = false;
@@ -406,6 +443,6 @@ void telegraph_app_run(void)
         }
         telegraph_ha_update(&ha_state);
 #endif
-        if (changed) show_state(screen, &keyer, selected, page, label, &frame);
+        if (changed) show_state(screen, &keyer, selected, page, label, &dp_preview, &frame);
     }
 }
