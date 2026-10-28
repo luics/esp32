@@ -8,7 +8,7 @@
 POST 响应的 `choices[0].delta.content`（SSE）或 `choices[0].message.content`（JSON）同时送往显示预览；忽略推理内容、工具调用和 GET 响应。JSON 或单个 SSE 事件最多 16 KiB，超出或解析失败时记录警告，串口仍打印原始响应。
 应用在请求前通过 `telegraph_dp_set_content_callback` 注册回调；回调运行于网络任务，只能短暂使用传入的内容并应立即返回。
 主机测试使用已下载的 `managed_components/espressif__cjson` 源码；首次运行前需先通过 ESP-IDF 完成组件依赖解析。
-模式按钮每次点击同时提交 `hi` 的流式请求，设置 `reasoning_effort` 为 `none`；模式切换和本地输入不等待网络。
+模式按钮点击时，以最近输入的词提交流式请求，设置 `reasoning_effort` 为 `none`；已松开的最后一个未确认字符按当前候选解码纳入词中。点划正在发送或排队时，等当前信号完成后提交；没有输入或词的 JSON 超过 4096 字节时不发送，并记录警告。模式切换和本地输入不等待网络。
 
 把已确认的摩斯码历史异步同步到 `https://telegraph-iot.bryanxu.top`。
 

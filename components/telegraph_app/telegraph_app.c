@@ -1,6 +1,7 @@
 #include "telegraph_app.h"
 #include <stdio.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include "driver/gpio.h"
 #include <string.h>
 #include "blink.h"
@@ -12,6 +13,7 @@
 #include "morse.h"
 #include "keyer.h"
 #include "telegraph_sync.h"
+#include "dp_prompt.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -207,6 +209,20 @@ static void restart_if_requested(blink_handle_t led, blink_handle_t external_led
     esp_restart();
 }
 
+static void post_latest_word(const morse_t *morse)
+{
+    /* 构造当前词的快照后入队，后续输入不会修改已提交的请求。 */
+    char *prompt = NULL;
+    const dp_prompt_result_t result = dp_prompt_build(morse, &prompt);
+    if (result == DP_PROMPT_READY) {
+        const esp_err_t err = telegraph_dp_post(prompt);
+        if (err != ESP_OK) ESP_LOGW(TAG, "DeepSeek request not queued: %s", esp_err_to_name(err));
+        free(prompt);
+    } else {
+        ESP_LOGW(TAG, "DeepSeek request skipped: word unavailable (%d)", result);
+    }
+}
+
 static void show_state(display_handle_t screen, const keyer_t *keyer,
                        uint32_t selected, size_t page, const char label[4], const dp_preview_t *preview,
                        display_frame_t *frame)
@@ -315,6 +331,7 @@ void telegraph_app_run(void)
     pir_sensor_sample_t motion = {0};
     int motion_level = -1;
     bool wait_keys_release = false;
+    unsigned pending_dp_requests = 0;
     uint32_t selected = interval_control_get_unit_ms();
     dp_preview_t dp_preview = {0};
     show_state(screen, &keyer, selected, page, label, &dp_preview, &frame);
@@ -354,10 +371,12 @@ void telegraph_app_run(void)
             if (event.kind == HISTORY_NEXT) {
                 ++page_requests;
             } else if (event.kind == MODE_TOGGLE) {
+                /* 发送中的点划先完成，再采集词快照，避免截断末尾字符。 */
+                if (telegraph->pressed || keyer.count) {
+                    if (pending_dp_requests < 4) ++pending_dp_requests;
+                    else ESP_LOGW(TAG, "DeepSeek pending requests full");
+                } else post_latest_word(&telegraph->morse);
                 keyer_toggle_mode(&keyer);
-                /* 网络请求只入队，不能阻塞输入、声光或模式切换。 */
-                const esp_err_t dp_err = telegraph_dp_post("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"reasoning_effort\":\"none\"}");
-                if (dp_err != ESP_OK) ESP_LOGW(TAG, "DeepSeek request not queued: %s", esp_err_to_name(dp_err));
                 /* 重复点击重新计时并记录；黄光优先期间仍继续发送点划。 */
                 external_feedback.mode_until_ms = now_ms() + 200;
                 external_feedback.active = false;
@@ -391,6 +410,11 @@ void telegraph_app_run(void)
         const bool was_dual = keyer.dual_mode;
         ESP_ERROR_CHECK(keyer_advance(&keyer, now_ms(), selected) ? ESP_OK : ESP_ERR_NO_MEM);
         sync_feedback(&keyer, led, &feedback_active, &feedback_color);
+        if (pending_dp_requests && !telegraph->pressed && !keyer.count) {
+            /* 每轮只入队一次，避免连续点击影响声光任务的响应。 */
+            post_latest_word(&telegraph->morse);
+            --pending_dp_requests;
+        }
         ESP_ERROR_CHECK(pir_sensor_sample(pir, now_ms(), &motion));
         const int next_motion_level = motion.motion ? (int)pir_feedback_level(motion.active_ms) : -1;
         if (next_motion_level != motion_level && next_motion_level >= 0) {

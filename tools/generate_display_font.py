@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 face = ImageFont.truetype(sys.argv[1], 16)
-# 主界面使用手工绘制的等宽 5×7 字形，避免矢量缩小时笔画不均。
+# 主界面使用手工绘制的等宽点阵，含小写字母的下伸笔画。
 pixel_rows = {
     'A': '0e11111f111111', 'B': '1e11111e11111e', 'C': '0e11101010110e',
     'D': '1e11111111111e', 'E': '1f10101e10101f', 'F': '1f10101e101010',
@@ -15,6 +15,15 @@ pixel_rows = {
     'S': '0f10100e01011e', 'T': '1f040404040404', 'U': '1111111111110e',
     'V': '11111111110a04', 'W': '11111115151b11', 'X': '11110a040a1111',
     'Y': '11110a04040404', 'Z': '1f01020408101f',
+    'a': '00000e010f110f', 'b': '1010161911111e', 'c': '00000f1010100f',
+    'd': '01010d1311110f', 'e': '00000e111f100f', 'f': '0609081c080808',
+    'g': '00000f11110f011e', 'h': '10101619111111', 'i': '04000c0404040e',
+    'j': '020006020202120c', 'k': '10101214181412', 'l': '0c04040404040e',
+    'm': '00001a15151515', 'n': '00001619111111', 'o': '00000e1111110e',
+    'p': '00001e111e101010', 'q': '00000f110f010101', 'r': '00001619101010',
+    's': '00000f100e011e', 't': '08081c08080906', 'u': '0000111111130d',
+    'v': '00001111110a04', 'w': '0000111115150a', 'x': '0000110a040a11',
+    'y': '000011110f011e', 'z': '00001f0204081f',
     '0': '0e11131519110e', '1': '040c040404040e', '2': '0e11010204081f',
     '3': '1e01010601011e', '4': '02060a121f0202', '5': '1f10101e01011e',
     '6': '0e10101e11110e', '7': '1f010204080808', '8': '0e11110e11110e',
@@ -34,11 +43,12 @@ for code in range(32, 127):
     cell.paste(glyph, ((5 - glyph.width) // 2, (9 - glyph.height) // 2))
     bits = [sum(1 << (4 - x) for x in range(5) if cell.getpixel((x, y)) >= 100)
             for y in range(9)]
-    if character.upper() in pixel_rows:
-        values = pixel_rows[character.upper()]
-        bits = [0] + [int(values[i:i + 2], 16) for i in range(0, 14, 2)] + [0]
+    if character in pixel_rows:
+        values = pixel_rows[character]
+        bits = [0] + [int(values[i:i + 2], 16) for i in range(0, len(values), 2)]
+        bits += [0] * (9 - len(bits))
     rows.append('    {' + ', '.join(f'0x{v:02x}' for v in bits) + f'}}, /* ASCII {code} */')
-header = ('/* ASCII 字模：字母、数字及主要符号为手工 5x7；其余为 Noto Sans CJK SC 子集（SIL OFL 1.1）。\n'
+header = ('/* ASCII 字模：字母、数字及主要符号为手工点阵；其余为 Noto Sans CJK SC 子集（SIL OFL 1.1）。\n'
           ' * 由 tools/generate_display_font.py 生成：每字 5x9，ASCII 32~126。 */\n'
           '#pragma once\n#include <stdint.h>\n'
           'static const uint8_t telegraph_font[95][9] = {\n' + '\n'.join(rows) + '\n};\n')

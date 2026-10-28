@@ -75,7 +75,7 @@ repository when they override this baseline.
 - `components/telegraph/`：纯 C 单键识别与双键发送状态机，公开依赖 `morse`。
 - `components/telegraph_app/`：外设初始化、边沿队列、声光同步、显示快照与复位调度，对外仅提供运行入口。
 - `components/telegraph_ha/`：复用现有 Wi-Fi，通过 MQTT Discovery 发布 PIR、模式、字符单位与最新确认字符，远程 S/D 请求交给应用任务；配置 Broker、部署 Mosquitto 或进行 Wokwi/HA 联调时阅读 [组件说明](components/telegraph_ha/README.md)。
-- `components/telegraph_sync/`：复用 Wi-Fi 和同步服务 HTTPS 配置访问 `/api/dp`；模式按钮点击后异步发送 `hi` 的流式请求（`reasoning_effort` 为 `none`）并打印响应，回答正文在 display 预览区显示最新两行；输入期间优先显示摩斯码，当前字库不支持的字符以 `?` 表示。接口也支持非流式 POST 与模型列表 GET，详见组件 README。
+- `components/telegraph_sync/`：复用 Wi-Fi 和同步服务 HTTPS 配置访问 `/api/dp`；模式按钮点击后异步发送最近输入的词（包含已松开的候选字符），流式请求的 `reasoning_effort` 为 `none`，并打印响应；空输入跳过请求，点划发送或排队时等待当前信号完成后提交。回答正文在 display 预览区按原始大小写显示最新两行；输入期间优先显示摩斯码，当前字库不支持的字符以 `?` 表示。接口也支持非流式 POST 与模型列表 GET，详见组件 README。
 - `components/pir_sensor/`：配置 PIR 数字输入、采样电平并仅在变化时记录日志；活动程度和 GPIO5 灯的优先级由 `telegraph_app` 处理。
 - 外设组件继续负责各自驱动；新增业务逻辑按上述职责归属，组件接口和使用约定见各自 README。
 

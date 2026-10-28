@@ -136,7 +136,8 @@ bool telegraph_ha_take_mode(bool *dual){
 }
 esp_err_t telegraph_sync_start(const char label[4]){assert(!strcmp(label,"A09"));return ESP_OK;}
 esp_err_t telegraph_sync_history(const morse_t *morse){assert(morse->count);return ESP_OK;}
-esp_err_t telegraph_dp_post(const char *json){assert(strstr(json,"\"content\":\"hi\""));assert(strstr(json,"\"reasoning_effort\":\"none\""));return ESP_OK;}
+static unsigned dp_posts;
+esp_err_t telegraph_dp_post(const char *json){assert(strstr(json,"\"reasoning_effort\":\"none\""));if(getenv("TEST_DP_WORD"))assert(strstr(json,"\"content\":\"E\""));++dp_posts;return ESP_OK;}
 void telegraph_dp_set_content_callback(telegraph_dp_content_callback_t callback,void *context){dp_callback=callback;dp_context=context;}
 esp_err_t blink_create(int gpio,blink_handle_t *handle){assert(gpio==8);*handle=(void*)1;return ESP_OK;}
 esp_err_t blink_create_with_order(int gpio,blink_order_t order,blink_handle_t *handle){
@@ -244,6 +245,17 @@ static void dual_step(TickType_t ticks){
     }
 }
 void vTaskDelay(TickType_t ticks){
+    if(getenv("TEST_DP_WORD")){
+        if(clock_ms==20 || clock_ms==45)assert(dp_posts==0);
+        if(clock_ms>=120){assert(dp_posts==1);longjmp(done,1);}
+        for(uint64_t until=clock_ms+ticks;clock_ms<until;){
+            ++clock_ms;
+            if(clock_ms==10 || clock_ms==40)mode_press(mode_context);
+            if(clock_ms==30)red_edge(true,red_context);
+            if(clock_ms==50)red_edge(false,red_context);
+        }
+        return;
+    }
     if(getenv("TEST_DP_PREVIEW")){
         if(clock_ms==20){assert(last_frame.dp_preview_active);assert(!strcmp(last_frame.dp_preview[0],"12345678901234567890"));assert(!strcmp(last_frame.dp_preview[1],"abc?"));}
         if(clock_ms==40)assert(!last_frame.dp_preview_active);
@@ -353,6 +365,7 @@ int main(void){
 #endif
     if(getenv("TEST_HA_MODE")){puts("PASS: remote S/D requests preserve complete dash and report actual mode after transition");return 0;}
     if(getenv("TEST_DP_PREVIEW")){puts("PASS: DP preview, wrapping, UTF-8 fallback and input priority");return 0;}
+    if(getenv("TEST_DP_WORD")){puts("PASS: empty input skipped and held character submitted after release");return 0;}
     if(getenv("TEST_DUAL_MODE")){puts("PASS: actual app_main default dual mode, dual FIFO, standard dot/dash, repeats, speed lock, mode switches, inactive black key");return 0;}
     if(getenv("TEST_PIR_MODE")){puts("PASS: PIR white/green/yellow/red blink, mode and dot override, motion ended LED off");return 0;}
     puts("PASS: actual app_main down=on/up=off, 30/200/500ms holds, ten rapid 20ms taps, no replay, 2kHz, green isolated, speed locked, initial/held/7-unit word indicator");
@@ -375,7 +388,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
     for include in includes:
         command += ["-I", str(include)]
     command += [str(work / "harness.c"), str(ROOT / "main/app_main.c"),
-                str(ROOT / "components/telegraph_app/telegraph_app.c"), str(ROOT / "components/morse/morse.c"),
+                str(ROOT / "components/telegraph_app/telegraph_app.c"), str(ROOT / "components/telegraph_app/dp_prompt.c"), str(ROOT / "components/morse/morse.c"),
                 str(ROOT / "components/telegraph/telegraph.c"), str(ROOT / "components/telegraph/keyer.c"), "-o", str(work / "test")]
     subprocess.run(command, check=True)
     subprocess.run([str(work / "test")], check=True)
@@ -385,6 +398,7 @@ with tempfile.TemporaryDirectory(prefix="esp32-feedback-") as directory:
 
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_HA_MODE": "1"})
     subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DP_PREVIEW": "1"})
+    subprocess.run([str(work / "test")], check=True, env={**os.environ, "TEST_DP_WORD": "1"})
 
     subprocess.run(command + ["-DTEST_INTERVAL_DISABLED"], check=True)
     subprocess.run([str(work / "test")], check=True)
